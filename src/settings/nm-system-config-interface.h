@@ -30,10 +30,10 @@
 G_BEGIN_DECLS
 
 #define PLUGIN_PRINT(pname, fmt, args...) \
-	{ g_message ("   " pname ": " fmt, ##args); }
+	G_STMT_START { g_message ("   " pname ": " fmt, ##args); } G_STMT_END
 
 #define PLUGIN_WARN(pname, fmt, args...) \
-	{ g_warning ("   " pname ": " fmt, ##args); }
+	G_STMT_START { g_warning ("   " pname ": " fmt, ##args); } G_STMT_END
 
 
 /* Plugin's factory function that returns a GObject that implements
