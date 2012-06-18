@@ -155,6 +155,7 @@ initscript/*/[Nn]etwork[Mm]anager
 
 *-glue.h
 *-bindings.h
+*-generated.[ch]
 callouts/tests/test-dispatcher-envp
 libnm-glib/libnm-glib-test
 libnm-glib/nm-glib-marshal.*

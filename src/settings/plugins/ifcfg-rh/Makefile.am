@@ -2,11 +2,19 @@ SUBDIRS = . tests
 
 @GNOME_CODE_COVERAGE_RULES@
 
-nm-ifcfg-rh-glue.h: nm-ifcfg-rh.xml
-	$(AM_V_GEN) dbus-binding-tool --prefix=nm_ifcfg_rh --mode=glib-server --output=$@ $<
+# Work around bad generated code
+AM_CFLAGS = $(filter-out @AM_CFLAGS@,-Wfloat-equal)
+
+nm-ifcfg-rh-generated.h nm-ifcfg-rh-generated.c: nm-ifcfg-rh.xml
+	$(AM_V_GEN) gdbus-codegen			\
+		--generate-c-code nm-ifcfg-rh-generated	\
+		--c-namespace=NM			\
+		--c-generate-object-manager		\
+		$<
 
 BUILT_SOURCES = \
-	nm-ifcfg-rh-glue.h
+	nm-ifcfg-rh-generated.h	\
+	nm-ifcfg-rh-generated.c
 
 pkglib_LTLIBRARIES = libnm-settings-plugin-ifcfg-rh.la
 
@@ -51,12 +59,15 @@ libifcfg_rh_io_la_LIBADD = \
 libnm_settings_plugin_ifcfg_rh_la_SOURCES = \
 	plugin.c \
 	plugin.h \
+	nm-ifcfg-rh-generated.c \
+	nm-ifcfg-rh-generated.h \
 	nm-ifcfg-connection.c \
 	nm-ifcfg-connection.h
 
 libnm_settings_plugin_ifcfg_rh_la_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
-	$(DBUS_CFLAGS) \
+	$(GMODULE_CFLAGS) \
+	$(GIO_UNIX_CFLAGS) \
 	-DSYSCONFDIR=\"$(sysconfdir)\"
 
 libnm_settings_plugin_ifcfg_rh_la_LDFLAGS = -module -avoid-version
@@ -64,7 +75,9 @@ libnm_settings_plugin_ifcfg_rh_la_LIBADD = \
 	$(top_builddir)/libnm-util/libnm-util.la \
 	$(top_builddir)/libnm-glib/libnm-glib.la \
 	libifcfg-rh-io.la \
-	$(GLIB_LIBS)
+	$(GLIB_LIBS) \
+	$(GMODULE_LIBS) \
+	$(GIO_UNIX_LIBS)
 
 dbusservicedir = $(DBUS_SYS_DIR)
 dbusservice_DATA = nm-ifcfg-rh.conf
