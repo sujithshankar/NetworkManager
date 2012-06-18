@@ -5,7 +5,7 @@ AC_DEFUN([NM_COMPILER_WARNINGS],
 AC_MSG_CHECKING(for more warnings)
 if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 	AC_MSG_RESULT(yes)
-	CFLAGS="-Wall -std=gnu89 $CFLAGS"
+	AM_CFLAGS="-Wall -std=gnu89 $AM_CFLAGS"
 
 	for option in -Wshadow -Wmissing-declarations -Wmissing-prototypes \
 		      -Wdeclaration-after-statement \
@@ -20,17 +20,19 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 		AC_TRY_COMPILE([], [],
 			has_option=yes,
 			has_option=no,)
-		if test $has_option = no; then
-			CFLAGS="$SAVE_CFLAGS"
+		if test $has_option = yes; then
+			AM_CFLAGS="$AM_CFLAGS $option"
 		fi
+		CFLAGS="$SAVE_CFLAGS"
 		AC_MSG_RESULT($has_option)
 		unset has_option
 		unset SAVE_CFLAGS
 	done
 	unset option
 	if test "x$set_more_warnings" = xerror; then
-		CFLAGS="$CFLAGS -Werror"
+		AM_CFLAGS="$AM_CFLAGS -Werror"
 	fi
+	AC_SUBST(AM_CFLAGS)
 else
 	AC_MSG_RESULT(no)
 fi
