@@ -51,6 +51,10 @@
 #define NM_IFCFG_RH_SERVICE_NAME "com.redhat.ifcfgrh1"
 #define NM_IFCFG_RH_OBJECT_PATH "/com/redhat/ifcfgrh1"
 
+#define HOSTNAMED_SERVICE_NAME      "org.freedesktop.hostname1"
+#define HOSTNAMED_SERVICE_PATH      "/org/freedesktop/hostname1"
+#define HOSTNAMED_SERVICE_INTERFACE "org.freedesktop.hostname1"
+
 static void connection_new_or_changed (SCPluginIfcfg *plugin,
                                        const char *path,
                                        NMIfcfgConnection *existing);
@@ -67,15 +71,13 @@ G_DEFINE_TYPE_EXTENDED (SCPluginIfcfg, sc_plugin_ifcfg, G_TYPE_OBJECT, 0,
 typedef struct {
 	GHashTable *connections;
 
-	gulong ih_event_id;
-	int sc_network_wd;
-	GFileMonitor *hostname_monitor;
-	guint hostname_monitor_id;
+	GDBusProxy *hostnamed;
 	char *hostname;
 
 	GFileMonitor *ifcfg_monitor;
 	guint ifcfg_monitor_id;
 
+	GDBusConnection *bus;
 	guint owner_id;
 	NMIfcfgRH *dbus_ifcfg;
 } SCPluginIfcfgPrivate;
@@ -456,98 +458,67 @@ add_connection (NMSystemConfigInterface *config,
 	return (NMSettingsConnection *) added;
 }
 
-#define SC_NETWORK_FILE "/etc/sysconfig/network"
-#define HOSTNAME_FILE   "/etc/hostname"
-
 static char *
 plugin_get_hostname (SCPluginIfcfg *plugin)
 {
-	shvarFile *network;
-	char *hostname;
-	gboolean ignore_localhost;
+	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
 
-	if (g_file_get_contents (HOSTNAME_FILE, &hostname, NULL, NULL)) {
-		g_strchomp (hostname);
-		return hostname;
-	}
-
-	network = svNewFile (SC_NETWORK_FILE);
-	if (!network) {
-		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Could not get hostname: failed to read " SC_NETWORK_FILE);
-		return NULL;
-	}
-
-	hostname = svGetValue (network, "HOSTNAME", FALSE);
-	ignore_localhost = svTrueValue (network, "NM_IGNORE_HOSTNAME_LOCALHOST", FALSE);
-	if (ignore_localhost) {
-		/* Ignore a hostname of 'localhost' or 'localhost.localdomain' to preserve
-		 * 'network' service behavior.
-		 */
-		if (hostname && (!strcmp (hostname, "localhost") || !strcmp (hostname, "localhost.localdomain"))) {
-			g_free (hostname);
-			hostname = NULL;
-		}
-	}
-
-	svCloseFile (network);
-	return hostname;
+	return g_strdup (priv->hostname);
 }
 
 static gboolean
 plugin_set_hostname (SCPluginIfcfg *plugin, const char *hostname)
 {
 	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
-	shvarFile *network;
+	GVariant *ret;
+	GError *error = NULL;
 
-	if (!g_file_set_contents (HOSTNAME_FILE, hostname, -1, NULL)) {
-		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Could not save hostname: failed to create/open " HOSTNAME_FILE);
+	ret = g_dbus_proxy_call_sync (priv->hostnamed,
+	                              "SetHostname",
+	                              g_variant_new ("(sb)",
+	                                             hostname,
+	                                             FALSE),
+	                              G_DBUS_CALL_FLAGS_NONE,
+	                              -1,
+	                              NULL,
+	                              &error);
+	if (ret)
+		g_variant_unref (ret);
+
+	if (error) {
+		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Could not set hostname: %s", error->message);
+		g_error_free (error);
 		return FALSE;
 	}
 
 	g_free (priv->hostname);
 	priv->hostname = g_strdup (hostname);
 
-	/* Remove "HOSTNAME" from SC_NETWORK_FILE, if present */
-	network = svNewFile (SC_NETWORK_FILE);
-	if (network) {
-		svSetValue (network, "HOSTNAME", NULL, FALSE);
-		svWriteFile (network, 0644);
-		svCloseFile (network);
-	}
-
 	return TRUE;
 }
 
 static void
-hostname_maybe_changed (SCPluginIfcfg *plugin)
+hostnamed_properties_changed (GDBusProxy *proxy,
+                              GVariant *changed_properties,
+                              char **invalidated_properties,
+                              gpointer user_data)
 {
+	SCPluginIfcfg *plugin = user_data;
 	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
-	char *new_hostname;
+	GVariant *v_hostname;
+	const char *hostname;
 
-	new_hostname = plugin_get_hostname (plugin);
-	if (   (new_hostname && !priv->hostname)
-	    || (!new_hostname && priv->hostname)
-	    || (priv->hostname && new_hostname && strcmp (priv->hostname, new_hostname))) {
-		g_free (priv->hostname);
-		priv->hostname = new_hostname;
-		g_object_notify (G_OBJECT (plugin), NM_SYSTEM_CONFIG_INTERFACE_HOSTNAME);
-	} else
-		g_free (new_hostname);
-}
-
-static void
-sc_network_changed_cb (NMInotifyHelper *ih,
-                       struct inotify_event *evt,
-                       const char *path,
-                       gpointer user_data)
-{
-	SCPluginIfcfg *plugin = SC_PLUGIN_IFCFG (user_data);
-	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
-
-	if (evt->wd != priv->sc_network_wd)
+	v_hostname = g_dbus_proxy_get_cached_property (priv->hostnamed, "StaticHostname");
+	if (!v_hostname)
 		return;
 
-	hostname_maybe_changed (plugin);
+	hostname = g_variant_get_string (v_hostname, NULL);
+	if (g_strcmp0 (priv->hostname, hostname) != 0) {
+		priv->hostname = g_strdup (hostname);
+		g_object_notify (G_OBJECT (plugin), NM_SYSTEM_CONFIG_INTERFACE_HOSTNAME);
+	}
+
+	g_variant_unref (v_hostname);
 }
 
 static void
@@ -628,25 +599,6 @@ init (NMSystemConfigInterface *config)
 {
 }
 
-static void
-on_bus_acquired (GDBusConnection *connection,
-                 const gchar     *name,
-                 gpointer         user_data)
-{
-	SCPluginIfcfg *plugin = user_data;
-	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
-	GError *error = NULL;
-
-	g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (priv->dbus_ifcfg),
-	                                  connection,
-	                                  NM_IFCFG_RH_OBJECT_PATH, &error);
-	if (error) {
-		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Couldn't export NMIfcfgRH object: %s",
-		             error->message);
-		g_error_free (error);
-	}
-}
-
 static gboolean ever_acquired_name = FALSE;
 
 static void
@@ -670,48 +622,75 @@ on_name_lost (GDBusConnection *connection,
 }
 
 static void
+got_hostnamed_proxy (GObject *object, GAsyncResult *result, gpointer user_data)
+{
+	SCPluginIfcfg *plugin = user_data;
+	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
+	GError *error = NULL;
+
+	priv->hostnamed = g_dbus_proxy_new_finish (result, &error);
+	if (!priv->hostnamed) {
+		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Could not contact hostnamed");
+		g_object_unref (plugin);
+		return;
+	}
+
+	g_signal_connect (priv->hostnamed, "g-properties-changed",
+	                  G_CALLBACK (hostnamed_properties_changed), plugin);
+	hostnamed_properties_changed (priv->hostnamed, NULL, NULL, plugin);
+
+	g_object_unref (plugin);
+}
+
+static void
+got_bus (GObject *object, GAsyncResult *result, gpointer user_data)
+{
+	SCPluginIfcfg *plugin = user_data;
+	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
+	GError *error = NULL;
+
+	priv->bus = g_bus_get_finish (result, &error);
+	if (!priv->bus) {
+		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Could not connect to D-Bus: %s", error->message);
+		g_error_free (error);
+		return;
+	}
+
+	g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (priv->dbus_ifcfg),
+	                                  priv->bus,
+	                                  NM_IFCFG_RH_OBJECT_PATH, &error);
+	if (error) {
+		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "Couldn't export NMIfcfgRH object: %s",
+		             error->message);
+		g_error_free (error);
+	}
+
+	priv->owner_id = g_bus_own_name_on_connection (priv->bus,
+	                                               NM_IFCFG_RH_SERVICE_NAME,
+	                                               0,
+	                                               on_name_acquired,
+	                                               on_name_lost,
+	                                               plugin, NULL);
+
+	g_dbus_proxy_new (priv->bus, 0, NULL,
+	                  HOSTNAMED_SERVICE_NAME,
+	                  HOSTNAMED_SERVICE_PATH,
+	                  HOSTNAMED_SERVICE_INTERFACE,
+	                  NULL,
+	                  got_hostnamed_proxy,
+	                  g_object_ref (plugin));
+}
+
+static void
 sc_plugin_ifcfg_init (SCPluginIfcfg *plugin)
 {
 	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
-	NMInotifyHelper *ih;
-	GError *error = NULL;
-	gboolean success = FALSE;
-	GFile *file;
-	GFileMonitor *monitor;
-
-	/* We watch SC_NETWORK_FILE via NMInotifyHelper (which doesn't track file creation but
-	 * *does* track modifications made via other hard links), since we expect it to always
-	 * exist. But we watch HOSTNAME_FILE via GFileMonitor (which has the opposite
-	 * semantics), since /etc/hostname might not exist, but is unlikely to have hard
-	 * links. bgo 532815 is the bug for being able to just use GFileMonitor for both.
-	 */
-
-	ih = nm_inotify_helper_get ();
-	priv->ih_event_id = g_signal_connect (ih, "event", G_CALLBACK (sc_network_changed_cb), plugin);
-	priv->sc_network_wd = nm_inotify_helper_add_watch (ih, SC_NETWORK_FILE);
-
-	file = g_file_new_for_path (HOSTNAME_FILE);
-	monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, NULL);
-	g_object_unref (file);
-	if (monitor) {
-		priv->hostname_monitor_id =
-			g_signal_connect (monitor, "changed", G_CALLBACK (hostname_changed_cb), plugin);
-		priv->hostname_monitor = monitor;
-	}
-
-	priv->hostname = plugin_get_hostname (plugin);
 
 	priv->dbus_ifcfg = nm_ifcfg_rh_skeleton_new ();
 	g_signal_connect (priv->dbus_ifcfg, "handle-get-ifcfg-details",
 	                  G_CALLBACK (handle_get_ifcfg_details), plugin);
 
-	priv->owner_id = g_bus_own_name (G_BUS_TYPE_SYSTEM,
-	                                 NM_IFCFG_RH_SERVICE_NAME,
-	                                 0,
-	                                 on_bus_acquired,
-	                                 on_name_acquired,
-	                                 on_name_lost,
-	                                 plugin, NULL);
+	g_bus_get (G_BUS_TYPE_SYSTEM, NULL, got_bus, plugin);
 }
 
 static void
@@ -734,22 +713,17 @@ dispose (GObject *object)
 		priv->dbus_ifcfg = NULL;
 	}
 
-	if (priv->ih_event_id) {
-		ih = nm_inotify_helper_get ();
-
-		g_signal_handler_disconnect (ih, priv->ih_event_id);
-		priv->ih_event_id = 0;
-
-		if (priv->sc_network_wd >= 0)
-			nm_inotify_helper_remove_watch (ih, priv->sc_network_wd);
+	if (priv->hostnamed) {
+		g_signal_handlers_disconnect_by_func (priv->hostnamed,
+		                                      G_CALLBACK (hostnamed_properties_changed),
+		                                      plugin);
+		g_object_unref (priv->hostnamed);
+		priv->hostnamed = NULL;
 	}
 
-	if (priv->hostname_monitor) {
-		if (priv->hostname_monitor_id)
-			g_signal_handler_disconnect (priv->hostname_monitor, priv->hostname_monitor_id);
-
-		g_file_monitor_cancel (priv->hostname_monitor);
-		g_object_unref (priv->hostname_monitor);
+	if (priv->bus) {
+		g_object_unref (priv->bus);
+		priv->bus = NULL;
 	}
 
 	g_free (priv->hostname);
