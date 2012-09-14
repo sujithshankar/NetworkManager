@@ -262,7 +262,7 @@ typedef struct {
 	guint cp_updated_id;
 } NMDevicePrivate;
 
-static void nm_device_take_down (NMDevice *dev, gboolean wait, NMDeviceStateReason reason);
+static void nm_device_take_down (NMDevice *dev, gboolean block, NMDeviceStateReason reason);
 
 static gboolean nm_device_bring_up (NMDevice *self, gboolean block, gboolean *no_firmware);
 static gboolean nm_device_is_up (NMDevice *self);
@@ -4812,7 +4812,7 @@ nm_device_state_changed (NMDevice *device,
 	switch (state) {
 	case NM_DEVICE_STATE_UNMANAGED:
 		nm_device_set_firmware_missing (device, FALSE);
-		if (old_state > NM_DEVICE_STATE_UNMANAGED)
+		if (old_state > NM_DEVICE_STATE_UNMANAGED && reason == NM_DEVICE_STATE_REASON_SLEEPING)
 			nm_device_take_down (device, TRUE, reason);
 		break;
 	case NM_DEVICE_STATE_UNAVAILABLE:
