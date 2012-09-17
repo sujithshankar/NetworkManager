@@ -291,15 +291,7 @@ connection_new_or_changed (SCPluginIfcfg *self,
 
 	if (new_unmanaged) {
 		if (!old_unmanaged) {
-			/* Unexport the connection by telling the settings service it's
-			 * been removed, and notify the settings service by signalling that
-			 * unmanaged specs have changed.
-			 */
-			nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (existing));
-			/* Remove the path so that claim_connection() doesn't complain later when
-			 * interface gets managed and connection is re-added. */
-			nm_connection_set_path (NM_CONNECTION (existing), NULL);
-
+			/* Notify the settings service by signalling that unmanaged specs have changed. */
 			g_object_set (existing, NM_IFCFG_CONNECTION_UNMANAGED, new_unmanaged, NULL);
 			g_signal_emit_by_name (self, NM_SYSTEM_CONFIG_INTERFACE_UNMANAGED_SPECS_CHANGED);
 		}
@@ -312,7 +304,6 @@ connection_new_or_changed (SCPluginIfcfg *self,
 
 			PLUGIN_PRINT (IFCFG_PLUGIN_NAME, "Managing connection '%s' and its "
 			              "device because NM_CONTROLLED was true.", cid);
-			g_signal_emit_by_name (self, NM_SYSTEM_CONFIG_INTERFACE_CONNECTION_ADDED, existing);
 		}
 
 		nm_settings_connection_replace_and_commit (NM_SETTINGS_CONNECTION (existing),
