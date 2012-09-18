@@ -1218,6 +1218,32 @@ connection_removed (NMSettings *settings,
 }
 
 static void
+assume_connection (NMManager *manager, NMDevice *device, NMConnection *connection)
+{
+	NMActiveConnection *ac;
+	GError *error = NULL;
+
+	g_return_if_fail (NM_IS_MANAGER (manager));
+	g_return_if_fail (NM_IS_DEVICE (device));
+	g_return_if_fail (NM_IS_CONNECTION (connection));
+
+	nm_log_dbg (LOGD_DEVICE, "(%s): will attempt to assume existing connection '%s'",
+	            nm_device_get_iface (device),
+	            nm_connection_get_id (connection));
+
+	ac = internal_activate_device (manager, device, connection, NULL, FALSE, 0, NULL, TRUE, NULL, &error);
+	if (ac)
+		g_object_notify (G_OBJECT (manager), NM_MANAGER_ACTIVE_CONNECTIONS);
+	else {
+		nm_log_warn (LOGD_DEVICE, "assumed connection %s failed to activate: (%d) %s",
+		             nm_connection_get_path (connection),
+		             error ? error->code : -1,
+		             error && error->message ? error->message : "(unknown)");
+		g_error_free (error);
+	}
+}
+
+static void
 system_unmanaged_devices_changed_cb (NMSettings *settings,
                                      GParamSpec *pspec,
                                      gpointer user_data)
@@ -1225,18 +1251,41 @@ system_unmanaged_devices_changed_cb (NMSettings *settings,
 	NMManager *self = NM_MANAGER (user_data);
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
 	const GSList *unmanaged_specs, *iter;
+	GSList *connections = NULL;
+
+	connections = nm_settings_get_connections (settings);
 
 	unmanaged_specs = nm_settings_get_unmanaged_specs (priv->settings);
 	for (iter = priv->devices; iter; iter = g_slist_next (iter)) {
 		NMDevice *device = NM_DEVICE (iter->data);
+		NMConnection *existing = NULL;
 		gboolean managed;
+		gboolean old_managed;
 
+		old_managed = nm_device_get_managed (device);
 		managed = !nm_device_spec_match_list (device, unmanaged_specs);
+
+		/* Check if we should assume the device's active connection by matching its
+		 * config with an existing system connection.
+		 */
+		if (nm_device_can_assume_connections (device) && !old_managed && managed) {
+			existing = nm_device_connection_match_config (device, (const GSList *) connections);
+			if (existing)
+				nm_log_info (LOGD_DEVICE, "(%s): going to be managed - found existing device connection '%s'",
+				             nm_device_get_iface (device),
+				             nm_connection_get_id (existing));
+		}
+
 		nm_device_set_managed (device,
 		                       managed,
-		                       managed ? NM_DEVICE_STATE_REASON_NOW_MANAGED :
+		                       managed ? (existing ? NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED : NM_DEVICE_STATE_REASON_NOW_MANAGED) :
 		                                 NM_DEVICE_STATE_REASON_NOW_UNMANAGED);
+
+		/* If the device has a connection it can assume, do that now */
+		if (existing && managed && nm_device_is_available (device))
+			assume_connection (self, device, existing);
 	}
+	g_slist_free (connections);
 }
 
 static void
@@ -1786,24 +1835,9 @@ add_device (NMManager *self, NMDevice *device)
 	system_create_virtual_devices (self);
 
 	/* If the device has a connection it can assume, do that now */
-	if (existing && managed && nm_device_is_available (device)) {
-		NMActiveConnection *ac;
-		GError *error = NULL;
+	if (existing && managed && nm_device_is_available (device))
+		assume_connection (self, device, existing);
 
-		nm_log_dbg (LOGD_DEVICE, "(%s): will attempt to assume existing connection",
-		            nm_device_get_iface (device));
-
-		ac = internal_activate_device (self, device, existing, NULL, FALSE, 0, NULL, TRUE, NULL, &error);
-		if (ac)
-			g_object_notify (G_OBJECT (self), NM_MANAGER_ACTIVE_CONNECTIONS);
-		else {
-			nm_log_warn (LOGD_DEVICE, "assumed connection %s failed to activate: (%d) %s",
-			             nm_connection_get_path (existing),
-			             error ? error->code : -1,
-			             error && error->message ? error->message : "(unknown)");
-			g_error_free (error);
-		}
-	}
 }
 
 static void

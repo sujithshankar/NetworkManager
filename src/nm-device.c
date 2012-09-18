@@ -3456,6 +3456,42 @@ dnsmasq_cleanup (NMDevice *self)
 }
 
 static void
+firewall_cleanup (NMDevice *self)
+{
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
+	NMConnection *connection = NULL;
+	NMSettingConnection *s_con = NULL;
+
+	if (priv->fw_call) {
+		nm_firewall_manager_cancel_call (priv->fw_manager, priv->fw_call);
+		priv->fw_call = NULL;
+	}
+
+	if (priv->act_request)
+		connection = nm_act_request_get_connection (priv->act_request);
+	if (connection) {
+		s_con = nm_connection_get_setting_connection (connection);
+		nm_firewall_manager_remove_from_zone (priv->fw_manager,
+		                                      nm_device_get_ip_iface (self),
+		                                      nm_setting_connection_get_zone (s_con));
+	}
+}
+
+static void
+device_cleanups (NMDevice *self)
+{
+	/* Clean up firewall */
+	firewall_cleanup (self);
+
+	/* Clean up and stop DHCP */
+	dhcp4_cleanup (self, TRUE, FALSE);
+	dhcp6_cleanup (self, TRUE, FALSE);
+	addrconf6_cleanup (self);
+	dnsmasq_cleanup (self);
+	aipd_cleanup (self);
+}
+
+static void
 _update_ip4_address (NMDevice *self)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
@@ -3492,8 +3528,6 @@ nm_device_deactivate (NMDevice *self, NMDeviceStateReason reason)
 {
 	NMDevicePrivate *priv;
 	NMDeviceStateReason ignored = NM_DEVICE_STATE_REASON_NONE;
-	NMConnection *connection = NULL;
-	NMSettingConnection *s_con = NULL;
 	gboolean tried_ipv6 = FALSE;
 	int ifindex, family;
 
@@ -3509,19 +3543,7 @@ nm_device_deactivate (NMDevice *self, NMDeviceStateReason reason)
 		tried_ipv6 = TRUE;
 
 	/* Clean up when device was deactivated during call to firewall */
-	if (priv->fw_call) {
-		nm_firewall_manager_cancel_call (priv->fw_manager, priv->fw_call);
-		priv->fw_call = NULL;
-	}
-
-	if (priv->act_request)
-		connection = nm_act_request_get_connection (priv->act_request);
-	if (connection) {
-		s_con = nm_connection_get_setting_connection (connection);
-		nm_firewall_manager_remove_from_zone (priv->fw_manager,
-		                                      nm_device_get_ip_iface (self),
-		                                      nm_setting_connection_get_zone (s_con));
-	}
+	firewall_cleanup (self);
 
 	/* Break the activation chain */
 	activation_source_clear (self, TRUE, AF_INET);
@@ -4832,6 +4854,8 @@ nm_device_state_changed (NMDevice *device,
 	case NM_DEVICE_STATE_DISCONNECTED:
 		if (old_state != NM_DEVICE_STATE_UNAVAILABLE)
 			nm_device_deactivate (device, reason);
+		else
+			device_cleanups (device);
 		break;
 	default:
 		priv->autoconnect = TRUE;
