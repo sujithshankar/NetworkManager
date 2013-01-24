@@ -610,8 +610,8 @@ value_hash_add_object_property (GHashTable *hash,
 gboolean
 nm_utils_do_sysctl (const char *path, const char *value)
 {
+	struct iovec iov[2];
 	int fd, len, nwrote, tries;
-	char *actual;
 
 	g_return_val_if_fail (path != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);
@@ -628,22 +628,23 @@ nm_utils_do_sysctl (const char *path, const char *value)
 
 	/* Most sysfs and sysctl options don't care about a trailing CR, while some
 	 * (like infiniband) do.  So always add the CR.  Also, neither sysfs nor
-	 * sysctl support partial writes so the CR must be added to the string we're
-	 * about to write.
+	 * sysctl support partial writes, so we have to write it all at once.
 	 */
-	actual = g_strdup_printf ("%s\n", value);
+	iov[0].iov_base = value;
+	iov[0].iov_len = strlen (value);
+	iov[1].iov_base = "\n";
+	iov[1].iov_len = 1;
+	len = iov[0].iov_len + iov[1].iov_len;
 
 	/* Try to write the entire value three times if a partial write occurs */
-	len = strlen (actual);
 	for (tries = 0, nwrote = 0; tries < 3 && nwrote != len; tries++) {
-		nwrote = write (fd, actual, len);
+		nwrote = writev (fd, iov, 2);
 		if (nwrote == -1) {
 			if (errno == EINTR)
 				continue;
 			break;
 		}
 	}
-	g_free (actual);
 
 	if (nwrote != len) {
 		nm_log_warn (LOGD_CORE, "sysctl: failed to set '%s' to '%s': (%d) %s",
