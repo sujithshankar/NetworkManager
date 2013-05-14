@@ -96,7 +96,7 @@
         NM_DEVICE_STATE_ACTIVATED state.
       </tp:docstring>
     </property>
-    <property name="Managed" type="b" access="read">
+    <property name="Managed" type="b" access="readwrite">
       <tp:docstring>
         Whether or not this device is managed by NetworkManager.
       </tp:docstring>
