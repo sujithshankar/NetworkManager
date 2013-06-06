@@ -213,6 +213,7 @@ typedef struct {
 	gpointer        act_source6_func;
 	gulong          secrets_updated_id;
 	gulong          secrets_failed_id;
+	NMConnection *  current_connection;
 
 	/* Link stuff */
 	guint           link_connected_id;
@@ -1601,6 +1602,131 @@ nm_device_can_assume_connections (NMDevice *device)
 	g_return_val_if_fail (NM_IS_DEVICE (device), FALSE);
 
 	return !!NM_DEVICE_GET_CLASS (device)->match_l2_config;
+}
+
+static void
+test_reconfigure (NMDevice *self, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *conn_diff, *ip4_diff, *ip6_diff;
+
+	conn_diff = g_hash_table_lookup (diff, NM_SETTING_CONNECTION_SETTING_NAME);
+	ip4_diff = g_hash_table_lookup (diff, NM_SETTING_IP4_CONFIG_SETTING_NAME);
+	ip6_diff = g_hash_table_lookup (diff, NM_SETTING_IP6_CONFIG_SETTING_NAME);
+
+	/* These only affect matching and have already been taken into account. */
+	if (conn_diff)
+		g_hash_table_remove (conn_diff, NM_SETTING_CONNECTION_INTERFACE_NAME);
+	if (ip4_diff)
+		g_hash_table_remove (ip4_diff, NM_SETTING_IP4_CONFIG_MAY_FAIL);
+	if (ip6_diff)
+		g_hash_table_remove (ip6_diff, NM_SETTING_IP6_CONFIG_MAY_FAIL);
+
+	/* FIXME: remove reconfigurable ip4/ip6 properties */
+}
+
+static gboolean
+nm_device_can_reconfigure (NMDevice *self, NMConnection *connection,
+                           GHashTable *diff)
+{
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
+	NMDeviceClass *klass = NM_DEVICE_GET_CLASS (self);
+	GHashTableIter iter;
+	gpointer key, value;
+
+	/* If the changes would make the connection incompatible, then we
+	 * can always "reconfigure" the device (by deactivating the
+	 * connection).
+	 */
+	if (!nm_device_check_connection_compatible (self, connection, NULL))
+		return TRUE;
+	if (   (!priv->ip4_config && nm_device_ip_config_should_fail (self, FALSE))
+	    || (!priv->ip6_config && nm_device_ip_config_should_fail (self, TRUE)))
+		return TRUE;
+
+	klass->test_reconfigure (self, connection, diff);
+
+	/* test_reconfigure() will have removed any properties it can
+	 * reconfigure; clear out any now-empty settings diffs.
+	 */
+	g_hash_table_iter_init (&iter, diff);
+	while (g_hash_table_iter_next (&iter, &key, &value)) {
+		if (g_hash_table_size (value) == 0)
+			g_hash_table_iter_remove (&iter);
+	}
+
+	/* If the diff is now empty, that means all of the changed
+	 * properties are reconfigurable.
+	 */
+	return g_hash_table_size (diff) == 0;
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (device);
+
+	if (!nm_device_check_connection_compatible (device, connection, NULL)) {
+		nm_log_info ("(%s): connection '%s' is no longer compatible with device",
+		             nm_device_get_iface (self), nm_connection_get_id (connection));
+		*reason = NM_DEVICE_STATE_REASON_CONNECTION_REMOVED;
+		return FALSE;
+	}
+
+	if (!priv->ip4_config && nm_device_ip_config_should_fail (device, FALSE)) {
+		nm_log_info ("(%s): connection '%s' now requires IPv4 connectivity",
+		             nm_device_get_iface (self), nm_connection_get_id (connection));
+		*reason = NM_DEVICE_STATE_REASON_IP_CONFIG_UNAVAILABLE;
+		return FALSE;
+	}
+
+	if (!priv->ip6_config && nm_device_ip_config_should_fail (device, TRUE)) {
+		nm_log_info ("(%s): connection '%s' now requires IPv6 connectivity",
+		             nm_device_get_iface (self), nm_connection_get_id (connection));
+		*reason = NM_DEVICE_STATE_REASON_IP_CONFIG_UNAVAILABLE;
+		return FALSE;
+	}
+
+	/* FIXME: reconfigure IP4 and IP6 properties, by re-merging the
+	 * settings properties with the DHCP/SLAAC/AIPD/etc-provided
+	 * configs.
+	 */
+
+	return TRUE;
+}
+
+static void
+connection_updated (NMSettingsConnection *settings_connection, gpointer user_data)
+{
+	NMDevice *self = NM_DEVICE (user_data);
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
+	NMConnection *connection = NM_CONNECTION (settings_connection);
+	NMDeviceStateReason reason;
+	GHashTable *diff = NULL;
+
+	if (!nm_connection_diff (priv->current_connection, connection,
+	                         NM_SETTING_COMPARE_FLAG_FUZZY,
+	                         &diff)) {
+		if (nm_device_can_reconfigure (self, connection, diff)) {
+			if (!NM_DEVICE_GET_CLASS (self)->reconfigure (self, connection, &reason)) {
+				nm_device_queue_state (self,
+				                       NM_DEVICE_STATE_DISCONNECTED,
+				                       reason);
+			}
+		} else {
+			nm_log_info ("(%s): connection '%s' changed, but device cannot be updated for those changes while active",
+			             nm_device_get_iface (self), nm_connection_get_id (connection));
+		}
+
+		g_hash_table_destroy (diff);
+	} else {
+		nm_log_dbg ("(%s): connection '%s' changed, but the changes do not affect the device",
+		            nm_device_get_iface (self), nm_connection_get_id (connection));
+	}
+
+	g_clear_object (&priv->current_connection);
+	priv->current_connection = nm_connection_duplicate (connection);
 }
 
 static void
@@ -3881,7 +4007,8 @@ nm_device_activate_ip6_state_in_wait (NMDevice *self)
 static void
 clear_act_request (NMDevice *self)
 {
-	NMDevicePrivate * priv;
+	NMDevicePrivate *priv;
+	NMConnection *connection;
 
 	g_return_if_fail (self != NULL);
 
@@ -3901,6 +4028,10 @@ clear_act_request (NMDevice *self)
 		                             priv->secrets_failed_id);
 		priv->secrets_failed_id = 0;
 	}
+
+	connection = nm_active_connection_get_connection (NM_ACTIVE_CONNECTION (priv->act_request));
+	g_signal_handlers_disconnect_by_func (connection, G_CALLBACK (connection_updated), self);
+	g_clear_object (&priv->current_connection);
 
 	nm_active_connection_set_default (NM_ACTIVE_CONNECTION (priv->act_request), FALSE);
 
@@ -4212,6 +4343,10 @@ nm_device_activate (NMDevice *self, NMActRequest *req)
 
 	priv->act_request = g_object_ref (req);
 	g_object_notify (G_OBJECT (self), NM_DEVICE_ACTIVE_CONNECTION);
+
+	g_signal_connect (connection, NM_SETTINGS_CONNECTION_UPDATED,
+	                  G_CALLBACK (connection_updated), self);
+	priv->current_connection = g_object_ref (connection);
 
 	if (nm_active_connection_get_assumed (NM_ACTIVE_CONNECTION (req))) {
 		/* If it's an assumed connection, let the device subclass short-circuit
@@ -4827,6 +4962,8 @@ dispose (GObject *object)
 	g_signal_handlers_disconnect_by_func (platform, G_CALLBACK (device_ip_changed), self);
 	g_signal_handlers_disconnect_by_func (platform, G_CALLBACK (link_changed_cb), self);
 
+	g_clear_object (&priv->current_connection);
+
 out:
 	G_OBJECT_CLASS (nm_device_parent_class)->dispose (object);
 }
@@ -5132,6 +5269,8 @@ nm_device_class_init (NMDeviceClass *klass)
 	klass->carrier_changed = carrier_changed;
 	klass->can_interrupt_activation = can_interrupt_activation;
 	klass->get_hw_address_length = get_hw_address_length;
+	klass->test_reconfigure = test_reconfigure;
+	klass->reconfigure = reconfigure;
 
 	/* Properties */
 	g_object_class_install_property

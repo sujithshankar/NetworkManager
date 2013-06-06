@@ -1014,6 +1014,19 @@ deactivate (NMDevice *device)
 		NM_DEVICE_CLASS (nm_device_bt_parent_class)->deactivate (device);
 }
 
+static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *bluetooth_diff;
+
+	bluetooth_diff = g_hash_table_lookup (diff, NM_SETTING_BLUETOOTH_SETTING_NAME);
+	if (bluetooth_diff) {
+		/* This only affects matching and has already been taken into account. */
+		g_hash_table_remove (bluetooth_diff, NM_SETTING_BLUETOOTH_BDADDR);
+	}
+}
+
 /*****************************************************************************/
 
 static gboolean
@@ -1280,6 +1293,7 @@ nm_device_bt_class_init (NMDeviceBtClass *klass)
 	device_class->is_available = is_available;
 
 	device_class->state_changed = device_state_changed;
+	device_class->test_reconfigure = test_reconfigure;
 
 	/* Properties */
 	g_object_class_install_property

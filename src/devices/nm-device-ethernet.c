@@ -286,6 +286,44 @@ device_state_changed (NMDevice *device,
 }
 
 static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *wired_diff;
+
+	wired_diff = g_hash_table_lookup (diff, NM_SETTING_WIRED_SETTING_NAME);
+	if (wired_diff) {
+		g_hash_table_remove (wired_diff, NM_SETTING_WIRED_MTU);
+
+		/* These only affect matching and have already been taken into account. */
+		g_hash_table_remove (wired_diff, NM_SETTING_WIRED_MAC_ADDRESS);
+		g_hash_table_remove (wired_diff, NM_SETTING_WIRED_MAC_ADDRESS_BLACKLIST);
+		g_hash_table_remove (wired_diff, NM_SETTING_WIRED_S390_SUBCHANNELS);
+	}
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	NMSettingWired *s_wired;
+	guint32 mtu;
+
+	if (!NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->reconfigure (device, connection, reason))
+		return FALSE;
+
+	s_wired = nm_connection_get_setting_wired (connection);
+	if (s_wired) {
+		mtu = nm_setting_wired_get_mtu (s_wired);
+		/* FIXME: this is wrong; we need to reset the MTU if it's 0. */
+		if (mtu)
+			nm_platform_link_set_mtu (nm_device_get_ifindex (device), mtu);
+	}
+
+	return TRUE;
+}
+
+static void
 nm_device_ethernet_init (NMDeviceEthernet * self)
 {
 }
@@ -1410,6 +1448,8 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 	parent_class->carrier_changed = carrier_changed;
 
 	parent_class->state_changed = device_state_changed;
+	parent_class->test_reconfigure = test_reconfigure;
+	parent_class->reconfigure = reconfigure;
 
 	/* properties */
 	g_object_class_install_property

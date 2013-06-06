@@ -233,6 +233,26 @@ set_sysfs_uint (const char *iface,
 	g_free (s);
 }
 
+static void
+set_bridge_properties (NMDevice *dev, NMConnection *connection)
+{
+	GObject *s_bridge;
+	const char *iface;
+
+	s_bridge = (GObject *) nm_connection_get_setting_bridge (connection);
+	g_assert (s_bridge);
+
+	iface = nm_device_get_ip_iface (dev);
+	g_assert (iface);
+
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_STP, "bridge", "stp_state", FALSE, FALSE);
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_PRIORITY, "bridge", "priority", TRUE, FALSE);
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_FORWARD_DELAY, "bridge", "forward_delay", TRUE, TRUE);
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_HELLO_TIME, "bridge", "hello_time", TRUE, TRUE);
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_MAX_AGE, "bridge", "max_age", TRUE, TRUE);
+	set_sysfs_uint (iface, s_bridge, NM_SETTING_BRIDGE_AGEING_TIME, "bridge", "ageing_time", TRUE, TRUE);
+}
+
 static NMActStageReturn
 act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 {
@@ -248,18 +268,7 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 		connection = nm_device_get_connection (dev);
 		g_assert (connection);
 
-		s_bridge = nm_connection_get_setting_bridge (connection);
-		g_assert (s_bridge);
-
-		iface = nm_device_get_ip_iface (dev);
-		g_assert (iface);
-
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_STP, "bridge", "stp_state", FALSE, FALSE);
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_PRIORITY, "bridge", "priority", TRUE, FALSE);
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_FORWARD_DELAY, "bridge", "forward_delay", TRUE, TRUE);
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_HELLO_TIME, "bridge", "hello_time", TRUE, TRUE);
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_MAX_AGE, "bridge", "max_age", TRUE, TRUE);
-		set_sysfs_uint (iface, G_OBJECT (s_bridge), NM_SETTING_BRIDGE_AGEING_TIME, "bridge", "ageing_time", TRUE, TRUE);
+		set_bridge_properties (dev, connection);
 	}
 	return ret;
 }
@@ -307,6 +316,35 @@ release_slave (NMDevice *device, NMDevice *slave)
 	             success);
 	g_object_notify (G_OBJECT (device), NM_DEVICE_BRIDGE_SLAVES);
 	return success;
+}
+
+static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *bridge_diff;
+
+	bridge_diff = g_hash_table_lookup (diff, NM_SETTING_BRIDGE_SETTING_NAME);
+	if (bridge_diff) {
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_MTU);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_STP);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_PRIORITY);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_FORWARD_DELAY);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_HELLO_TIME);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_MAX_AGE);
+		g_hash_table_remove (bridge_diff, NM_SETTING_BRIDGE_AGEING_TIME);
+	}
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	if (!NM_DEVICE_CLASS (nm_device_bridge_parent_class)->reconfigure (device, connection, reason))
+		return FALSE;
+
+	set_bridge_properties (device, connection);
+	return TRUE;
 }
 
 /******************************************************************/
@@ -399,6 +437,8 @@ nm_device_bridge_class_init (NMDeviceBridgeClass *klass)
 	parent_class->act_stage1_prepare = act_stage1_prepare;
 	parent_class->enslave_slave = enslave_slave;
 	parent_class->release_slave = release_slave;
+	parent_class->test_reconfigure = test_reconfigure;
+	parent_class->reconfigure = reconfigure;
 
 	/* properties */
 	g_object_class_install_property

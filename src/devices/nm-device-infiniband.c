@@ -128,15 +128,44 @@ get_generic_capabilities (NMDevice *dev)
 	return NM_DEVICE_CAP_CARRIER_DETECT;
 }
 
+static gboolean
+set_transport_mode (NMDevice *device, NMConnection *connection, NMDeviceStateReason *reason)
+{
+	NMSettingInfiniband *s_infiniband;
+	const char *transport_mode;
+	char *mode_path;
+	gboolean ok;
+
+	s_infiniband = nm_connection_get_setting_infiniband (connection);
+	g_assert (s_infiniband);
+
+	transport_mode = nm_setting_infiniband_get_transport_mode (s_infiniband);
+
+	mode_path = g_strdup_printf ("/sys/class/net/%s/mode", nm_device_get_iface (device));
+	if (!g_file_test (mode_path, G_FILE_TEST_EXISTS)) {
+		g_free (mode_path);
+
+		if (!strcmp (transport_mode, "datagram"))
+			return TRUE;
+		else {
+			*reason = NM_DEVICE_STATE_REASON_INFINIBAND_MODE;
+			return FALSE;
+		}
+	}
+
+	ok = nm_utils_do_sysctl (mode_path, transport_mode);
+	g_free (mode_path);
+
+	if (!ok)
+		*reason = NM_DEVICE_STATE_REASON_CONFIG_FAILED;
+	return ok;
+}
+
 static NMActStageReturn
 act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 {
 	NMActRequest *req;
 	NMConnection *connection;
-	NMSettingInfiniband *s_infiniband;
-	const char *transport_mode;
-	char *mode_path;
-	gboolean ok;
 
 	g_return_val_if_fail (reason != NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
@@ -145,30 +174,9 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 
 	connection = nm_act_request_get_connection (req);
 	g_assert (connection);
-	s_infiniband = nm_connection_get_setting_infiniband (connection);
-	g_assert (s_infiniband);
 
-	transport_mode = nm_setting_infiniband_get_transport_mode (s_infiniband);
-
-	mode_path = g_strdup_printf ("/sys/class/net/%s/mode", nm_device_get_iface (dev));
-	if (!g_file_test (mode_path, G_FILE_TEST_EXISTS)) {
-		g_free (mode_path);
-
-		if (!strcmp (transport_mode, "datagram"))
-			return NM_ACT_STAGE_RETURN_SUCCESS;
-		else {
-			*reason = NM_DEVICE_STATE_REASON_INFINIBAND_MODE;
-			return NM_ACT_STAGE_RETURN_FAILURE;
-		}
-	}
-
-	ok = nm_utils_do_sysctl (mode_path, transport_mode);
-	g_free (mode_path);
-
-	if (!ok) {
-		*reason = NM_DEVICE_STATE_REASON_CONFIG_FAILED;
+	if (!set_transport_mode (dev, connection, reason))
 		return NM_ACT_STAGE_RETURN_FAILURE;
-	}
 
 	return NM_DEVICE_CLASS (nm_device_infiniband_parent_class)->act_stage1_prepare (dev, reason);
 }
@@ -301,6 +309,46 @@ get_connection_hw_address (NMDevice *device,
 }
 
 static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *infiniband_diff;
+
+	infiniband_diff = g_hash_table_lookup (diff, NM_SETTING_INFINIBAND_SETTING_NAME);
+	if (infiniband_diff) {
+		g_hash_table_remove (infiniband_diff, NM_SETTING_INFINIBAND_TRANSPORT_MODE);
+		g_hash_table_remove (infiniband_diff, NM_SETTING_INFINIBAND_MTU);
+
+		/* This only affects matching and has already been taken into account. */
+		g_hash_table_remove (infiniband_diff, NM_SETTING_INFINIBAND_MAC_ADDRESS);
+	}
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	NMSettingInfiniband *s_infiniband;
+	guint32 mtu;
+
+	if (!NM_DEVICE_CLASS (nm_device_infiniband_parent_class)->reconfigure (device, connection, reason))
+		return FALSE;
+
+	s_infiniband = nm_connection_get_setting_infiniband (connection);
+	g_assert (s_infiniband);
+
+	if (!set_transport_mode (device, connection, reason))
+		return FALSE;
+
+	mtu = nm_setting_infiniband_get_mtu (s_infiniband);
+	/* FIXME: this is wrong; we need to reset the MTU if it's 0. */
+	if (mtu)
+		nm_platform_link_set_mtu (nm_device_get_ifindex (device), mtu);
+
+	return TRUE;
+}
+
+static void
 get_property (GObject *object, guint prop_id,
               GValue *value, GParamSpec *pspec)
 {
@@ -343,6 +391,8 @@ nm_device_infiniband_class_init (NMDeviceInfinibandClass *klass)
 	parent_class->ip4_config_pre_commit = ip4_config_pre_commit;
 	parent_class->match_l2_config = match_l2_config;
 	parent_class->get_connection_hw_address = get_connection_hw_address;
+	parent_class->test_reconfigure = test_reconfigure;
+	parent_class->reconfigure = reconfigure;
 
 	/* properties */
 

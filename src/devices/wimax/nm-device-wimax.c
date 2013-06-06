@@ -1205,6 +1205,19 @@ device_state_changed (NMDevice *device,
 	}
 }
 
+static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *wimax_diff;
+
+	wimax_diff = g_hash_table_lookup (diff, NM_SETTING_WIMAX_SETTING_NAME);
+	if (wimax_diff) {
+		/* This only affects matching and has already been taken into account. */
+		g_hash_table_remove (wimax_diff, NM_SETTING_WIMAX_MAC_ADDRESS);
+	}
+}
+
 /*************************************************************************/
 
 static gboolean
@@ -1395,6 +1408,7 @@ nm_device_wimax_class_init (NMDeviceWimaxClass *klass)
 	device_class->get_connection_hw_address = get_connection_hw_address;
 
 	device_class->state_changed = device_state_changed;
+	device_class->test_reconfigure = test_reconfigure;
 
 	/* Properties */
 	g_object_class_install_property (object_class, PROP_ACTIVE_NSP,

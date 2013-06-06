@@ -96,16 +96,12 @@ bring_up (NMDevice *dev, gboolean *no_firmware)
 	return success;
 }
 
-static NMActStageReturn
-act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
+static void
+set_vlan_properties (NMDevice *dev, NMConnection *connection)
 {
-	NMConnection *connection;
 	NMSettingVlan *s_vlan;
 	int ifindex = nm_device_get_ifindex (dev), num, i;
 	guint32 from, to;
-
-	connection = nm_device_get_connection (dev);
-	g_assert (connection);
 
 	s_vlan = nm_connection_get_setting_vlan (connection);
 	nm_platform_vlan_set_flags (ifindex, nm_setting_vlan_get_flags (s_vlan));
@@ -121,8 +117,44 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 		if (nm_setting_vlan_get_priority (s_vlan, NM_VLAN_EGRESS_MAP, i, &from, &to))
 			nm_platform_vlan_set_egress_map (ifindex, from, to);
 	}
+}
+
+static NMActStageReturn
+act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
+{
+	NMConnection *connection;
+
+	connection = nm_device_get_connection (dev);
+	g_assert (connection);
+
+	set_vlan_properties (dev, connection);
 
 	return NM_DEVICE_CLASS (nm_device_vlan_parent_class)->act_stage1_prepare (dev, reason);
+}
+
+static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *vlan_diff;
+
+	vlan_diff = g_hash_table_lookup (diff, NM_SETTING_VLAN_SETTING_NAME);
+	if (vlan_diff) {
+		g_hash_table_remove (vlan_diff, NM_SETTING_VLAN_FLAGS);
+		g_hash_table_remove (vlan_diff, NM_SETTING_VLAN_INGRESS_PRIORITY_MAP);
+		g_hash_table_remove (vlan_diff, NM_SETTING_VLAN_EGRESS_PRIORITY_MAP);
+	}
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	if (!NM_DEVICE_CLASS (nm_device_vlan_parent_class)->reconfigure (device, connection, reason))
+		return FALSE;
+
+	set_vlan_properties (device, connection);
+	return TRUE;
 }
 
 /******************************************************************/
@@ -466,6 +498,8 @@ nm_device_vlan_class_init (NMDeviceVlanClass *klass)
 	parent_class->check_connection_compatible = check_connection_compatible;
 	parent_class->complete_connection = complete_connection;
 	parent_class->match_l2_config = match_l2_config;
+	parent_class->test_reconfigure = test_reconfigure;
+	parent_class->reconfigure = reconfigure;
 
 	/* properties */
 	g_object_class_install_property

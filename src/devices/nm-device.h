@@ -187,7 +187,12 @@ typedef struct {
 	gboolean        (* have_any_ready_slaves) (NMDevice *self,
 	                                           const GSList *slaves);
 
-	void            (* link_changed) (NMDevice *self);
+	void            (* link_changed)       (NMDevice *self);
+
+	void            (* test_reconfigure) (NMDevice *self, NMConnection *connection,
+	                                      GHashTable *diff);
+	gboolean        (* reconfigure)      (NMDevice *self, NMConnection *connection,
+	                                      NMDeviceStateReason *reason);
 } NMDeviceClass;
 
 

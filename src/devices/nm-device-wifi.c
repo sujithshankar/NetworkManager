@@ -3408,6 +3408,43 @@ device_state_changed (NMDevice *device,
 		remove_all_aps (self);
 }
 
+static void
+test_reconfigure (NMDevice *device, NMConnection *connection,
+                  GHashTable *diff)
+{
+	GHashTable *wireless_diff;
+
+	wireless_diff = g_hash_table_lookup (diff, NM_SETTING_WIRELESS_SETTING_NAME);
+	if (wireless_diff) {
+		g_hash_table_remove (wireless_diff, NM_SETTING_WIRELESS_MTU);
+
+		/* These only affect matching and have already been taken into account. */
+		g_hash_table_remove (wireless_diff, NM_SETTING_WIRELESS_MAC_ADDRESS);
+		g_hash_table_remove (wireless_diff, NM_SETTING_WIRELESS_MAC_ADDRESS_BLACKLIST);
+	}
+}
+
+static gboolean
+reconfigure (NMDevice *device, NMConnection *connection,
+             NMDeviceStateReason *reason)
+{
+	NMSettingWireless *s_wireless;
+	guint32 mtu;
+
+	if (!NM_DEVICE_CLASS (nm_device_wifi_parent_class)->reconfigure (device, connection, reason))
+		return FALSE;
+
+	s_wireless = nm_connection_get_setting_wireless (connection);
+	if (s_wireless) {
+		mtu = nm_setting_wireless_get_mtu (s_wireless);
+		/* FIXME: this is wrong; we need to reset the MTU if it's 0. */
+		if (mtu)
+			nm_platform_link_set_mtu (nm_device_get_ifindex (device), mtu);
+	}
+
+	return TRUE;
+}
+
 NMAccessPoint *
 nm_device_wifi_get_activation_ap (NMDeviceWifi *self)
 {
@@ -3634,6 +3671,8 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 	parent_class->get_connection_hw_address = get_connection_hw_address;
 
 	parent_class->state_changed = device_state_changed;
+	parent_class->test_reconfigure = test_reconfigure;
+	parent_class->reconfigure = reconfigure;
 
 	klass->scanning_allowed = scanning_allowed;
 
