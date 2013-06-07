@@ -658,7 +658,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						   "No BSD compression",
 						   "If TRUE, BSD compression will not be requested.",
 						   FALSE,
-						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:nodeflate:
@@ -671,7 +671,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						   "No deflate",
 						   "If TRUE, 'deflate' compression will not be requested.",
 						   FALSE,
-						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:no-vj-comp:
@@ -684,7 +684,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						   "No VJ compression",
 						   "If TRUE, Van Jacobsen TCP header compression will not be requested.",
 						   FALSE,
-						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:require-mppe:
@@ -773,7 +773,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						"the specified baudrate.  This value should normally be "
 						"left as 0 to automatically choose the speed.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:mru:
@@ -805,7 +805,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						"If non-zero, instruct pppd to send packets no larger "
 						"than the specified size.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:lcp-echo-failure:
@@ -826,7 +826,7 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						"also be set to a non-zero value if this property is "
 						"used.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingPPP:lcp-echo-interval:
@@ -846,5 +846,5 @@ nm_setting_ppp_class_init (NMSettingPPPClass *setting_class)
 						"to echo requests and some will not, and it is not "
 						"possible to autodetect this.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 }

@@ -111,9 +111,9 @@ typedef enum {
 /**
  * NMSettingCompareFlags:
  * @NM_SETTING_COMPARE_FLAG_EXACT: match all properties exactly
- * @NM_SETTING_COMPARE_FLAG_FUZZY: match only important attributes, like SSID,
- *   type, security settings, etc.  Does not match, for example, connection ID
- *   or UUID.
+ * @NM_SETTING_COMPARE_FLAG_FUZZY: match only attributes that affect how
+ *   or whether the setting is applied to a device.  Does not match, for
+ *   example, connection ID or UUID.
  * @NM_SETTING_COMPARE_FLAG_IGNORE_ID: ignore the connection's ID
  * @NM_SETTING_COMPARE_FLAG_IGNORE_SECRETS: ignore all secrets
  * @NM_SETTING_COMPARE_FLAG_IGNORE_AGENT_OWNED_SECRETS: ignore secrets for which

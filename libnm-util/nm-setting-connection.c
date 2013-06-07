@@ -1192,7 +1192,7 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 						   "the connection must be manually activated by the user "
 						   "or some other mechanism.",
 						   TRUE,
-						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingConnection:timestamp:
@@ -1263,7 +1263,7 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 		                      "Interface name of the master device or UUID of "
 		                      "the master connection",
 		                      NULL,
-		                      G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+		                      G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingConnection:slave-type:
@@ -1279,7 +1279,7 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 		                      "this connection is (ie, 'bond') or NULL if this "
 		                      "connection is not a slave.",
 		                      NULL,
-		                      G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+		                      G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingConnection:secondaries:

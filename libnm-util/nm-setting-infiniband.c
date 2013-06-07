@@ -382,7 +382,7 @@ nm_setting_infiniband_class_init (NMSettingInfinibandClass *setting_class)
 		                    "size or smaller, breaking larger packets up into "
 		                    "multiple frames.",
 		                    0, G_MAXUINT32, 0,
-		                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+		                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingInfiniband:transport-mode:

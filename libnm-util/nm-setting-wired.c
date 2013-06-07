@@ -932,7 +932,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 		                             "an address in the list.  Each MAC address is in the "
 		                             "standard hex-digits-and-colons notation (00:11:22:33:44:55).",
 		                             DBUS_TYPE_G_LIST_OF_STRING,
-		                             G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+		                             G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingWired:mtu:
@@ -948,7 +948,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						"size or smaller, breaking larger packets up into "
 						"multiple Ethernet frames.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_FUZZY_IGNORE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
 
 	/**
 	 * NMSettingWired:s390-subchannels:
