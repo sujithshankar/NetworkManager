@@ -541,9 +541,13 @@ nm_setting_compare (NMSetting *a,
 	for (i = 0; i < n_property_specs && same; i++) {
 		GParamSpec *prop_spec = property_specs[i];
 
-		/* Fuzzy compare ignores secrets and properties defined with the FUZZY_IGNORE flag */
+		/* Fuzzy compare ignores secrets and properties defined with the FUZZY_IGNORE
+		 * or UNIMPLEMENTED flags.
+		 */
 		if (   (flags & NM_SETTING_COMPARE_FLAG_FUZZY)
-			&& (prop_spec->flags & (NM_SETTING_PARAM_FUZZY_IGNORE | NM_SETTING_PARAM_SECRET)))
+			&& (prop_spec->flags & (  NM_SETTING_PARAM_FUZZY_IGNORE
+			                        | NM_SETTING_PARAM_SECRET
+			                        | NM_SETTING_PARAM_UNIMPLEMENTED)))
 			continue;
 
 		if (   (flags & NM_SETTING_COMPARE_FLAG_IGNORE_SECRETS)
@@ -563,9 +567,13 @@ should_compare_prop (NMSetting *setting,
                      NMSettingCompareFlags comp_flags,
                      GParamFlags prop_flags)
 {
-	/* Fuzzy compare ignores secrets and properties defined with the FUZZY_IGNORE flag */
+	/* Fuzzy compare ignores secrets and properties defined with the FUZZY_IGNORE
+	 * or UNIMPLEMENTED flags.
+	 */
 	if (   (comp_flags & NM_SETTING_COMPARE_FLAG_FUZZY)
-	    && (prop_flags & (NM_SETTING_PARAM_FUZZY_IGNORE | NM_SETTING_PARAM_SECRET)))
+	    && (prop_flags & (  NM_SETTING_PARAM_FUZZY_IGNORE
+	                      | NM_SETTING_PARAM_SECRET
+	                      | NM_SETTING_PARAM_UNIMPLEMENTED)))
 		return FALSE;
 
 	if (prop_flags & NM_SETTING_PARAM_SECRET) {

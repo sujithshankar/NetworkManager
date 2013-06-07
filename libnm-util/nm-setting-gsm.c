@@ -688,7 +688,7 @@ nm_setting_gsm_class_init (NMSettingGsmClass *setting_class)
 		                   NM_SETTING_GSM_NETWORK_TYPE_ANY,
 		                   NM_SETTING_GSM_NETWORK_TYPE_4G,
 		                   NM_SETTING_GSM_NETWORK_TYPE_ANY,
-		                   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+		                   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingGsm:allowed-bands:
@@ -710,7 +710,7 @@ nm_setting_gsm_class_init (NMSettingGsmClass *setting_class)
 		                    NM_SETTING_GSM_BAND_UNKNOWN,
 		                    NM_SETTING_GSM_BANDS_MAX,
 		                    NM_SETTING_GSM_BAND_ANY,
-		                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+		                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingGsm:pin:

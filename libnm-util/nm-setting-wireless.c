@@ -1112,7 +1112,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_class)
 						"property is highly driver dependent and not all devices "
 						"support setting a static bitrate.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWireless:tx-power:
@@ -1130,7 +1130,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_class)
 						"driver dependent and not all devices support setting a "
 						"static transmit power.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWireless:mac-address:

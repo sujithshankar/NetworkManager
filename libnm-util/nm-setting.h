@@ -78,6 +78,11 @@ GQuark nm_setting_error_quark (void);
  */
 #define NM_SETTING_PARAM_FUZZY_IGNORE (1 << (3 + G_PARAM_USER_SHIFT))
 
+/* The property of the #NMSetting should be ignored during fuzzy
+ * comparisons, because it's not actually implemented.
+ */
+#define NM_SETTING_PARAM_UNIMPLEMENTED (1 << (4 + G_PARAM_USER_SHIFT))
+
 #define NM_SETTING_NAME "name"
 
 /**

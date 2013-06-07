@@ -831,7 +831,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						  "Interface.  If the device supports only one port "
 						  "type, this setting is ignored.",
 						  NULL,
-						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
+						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWired:speed:
@@ -846,7 +846,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						"If non-zero, request that the device use only the "
 						"specified speed.  In Mbit/s, ie 100 == 100Mbit/s.",
 						0, G_MAXUINT32, 0,
-						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+						G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWired:duplex:
@@ -861,7 +861,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						  "If specified, request that the device only use the "
 						  "specified duplex mode.  Either 'half' or 'full'.",
 						  NULL,
-						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
+						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingEthernet:auto-negotiate:
@@ -879,7 +879,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						   "in which case the 'speed' and 'duplex' properties "
 						   "should be set.",
 						   TRUE,
-						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE));
+						   G_PARAM_READWRITE | G_PARAM_CONSTRUCT | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWired:mac-address:
@@ -990,7 +990,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 						  "'ctc', representing the different types of virtual "
 						  "network devices available on s390 systems.",
 						  NULL,
-						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
+						  G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 
 	/**
 	 * NMSettingWired:s390-options:
@@ -1009,6 +1009,6 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 							   "strings.  Allowed keys include 'portno', "
 							   "'layer2', 'portname', 'protocol', among others.",
 							   DBUS_TYPE_G_MAP_OF_STRING,
-							   G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE));
+							   G_PARAM_READWRITE | NM_SETTING_PARAM_SERIALIZE | NM_SETTING_PARAM_UNIMPLEMENTED));
 }
 
