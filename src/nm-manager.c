@@ -1352,12 +1352,12 @@ system_create_virtual_device (NMManager *self, NMConnection *connection)
 		guint32 from, to;
 
 		if (!nm_platform_vlan_add (iface, ifindex,
-				nm_setting_vlan_get_id (s_vlan),
-				nm_setting_vlan_get_flags (s_vlan))) {
+		                           nm_setting_vlan_get_id (s_vlan))) {
 			nm_log_warn (LOGD_DEVICE, "(%s): failed to add VLAN interface for '%s'",
 			             iface, nm_connection_get_id (connection));
 			goto out;
 		}
+		nm_platform_vlan_set_flags (ifindex, nm_setting_vlan_get_flags (s_vlan));
 		num = nm_setting_vlan_get_num_priorities (s_vlan, NM_VLAN_INGRESS_MAP);
 		for (i = 0; i < num; i++) {
 			if (nm_setting_vlan_get_priority (s_vlan, NM_VLAN_INGRESS_MAP, i, &from, &to))

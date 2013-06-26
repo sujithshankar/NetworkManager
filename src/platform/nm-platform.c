@@ -840,12 +840,11 @@ nm_platform_team_add (const char *name)
  * nm_platform_vlan_add:
  * @name: New interface name
  * @vlanid: VLAN identifier
- * @vlanflags: VLAN flags from libnm-util
  *
  * Create a software VLAN device.
  */
 gboolean
-nm_platform_vlan_add (const char *name, int parent, int vlanid, guint32 vlanflags)
+nm_platform_vlan_add (const char *name, int parent, int vlanid)
 {
 	reset_error ();
 
@@ -861,9 +860,8 @@ nm_platform_vlan_add (const char *name, int parent, int vlanid, guint32 vlanflag
 		return FALSE;
 	}
 
-	debug ("link: adding vlan '%s' parent %d vlanid %d vlanflags %x",
-		name, parent, vlanid, vlanflags);
-	return klass->vlan_add (platform, name, parent, vlanid, vlanflags);
+	debug ("link: adding vlan '%s' parent %d vlanid %d", name, parent, vlanid);
+	return klass->vlan_add (platform, name, parent, vlanid);
 }
 
 gboolean
@@ -936,6 +934,18 @@ nm_platform_vlan_get_info (int ifindex, int *parent, int *vlanid)
 }
 
 gboolean
+nm_platform_vlan_set_flags (int ifindex, guint32 vlanflags)
+{
+	reset_error ();
+
+	g_assert (platform);
+	g_return_val_if_fail (klass->vlan_set_flags, FALSE);
+
+	debug ("link: setting vlan flags for %d to 0x%x", ifindex, vlanflags);
+	return klass->vlan_set_flags (platform, ifindex, vlanflags);
+}
+
+gboolean
 nm_platform_vlan_set_ingress_map (int ifindex, int from, int to)
 {
 	reset_error ();
@@ -957,6 +967,18 @@ nm_platform_vlan_set_egress_map (int ifindex, int from, int to)
 
 	debug ("link: setting vlan egress map for %d from %d to %d", ifindex, from, to);
 	return klass->vlan_set_egress_map (platform, ifindex, from, to);
+}
+
+gboolean
+nm_platform_vlan_clear_maps (int ifindex)
+{
+	reset_error ();
+
+	g_assert (platform);
+	g_return_val_if_fail (klass->vlan_clear_maps, FALSE);
+
+	debug ("link: clearing vlan ingress/egress maps for %d", ifindex);
+	return klass->vlan_clear_maps (platform, ifindex);
 }
 
 gboolean

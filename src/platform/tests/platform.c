@@ -116,9 +116,8 @@ do_vlan_add (char **argv)
 	const char *name = *argv++;
 	int parent = parse_ifindex (*argv++);
 	int vlanid = strtol (*argv++, NULL, 10);
-	guint32 vlan_flags = strtol (*argv++, NULL, 10);
 
-	return nm_platform_vlan_add (name, parent, vlanid, vlan_flags);
+	return nm_platform_vlan_add (name, parent, vlanid);
 }
 
 static gboolean
@@ -323,6 +322,15 @@ do_vlan_get_info (char **argv)
 }
 
 static gboolean
+do_vlan_set_flags (char **argv)
+{
+	int ifindex = parse_ifindex (*argv++);
+	guint32 vlan_flags = strtol (*argv++, NULL, 10);
+
+	return nm_platform_vlan_set_flags (ifindex, vlan_flags);
+}
+
+static gboolean
 do_vlan_set_ingress_map (char **argv)
 {
 	int ifindex = parse_ifindex (*argv++);
@@ -340,6 +348,14 @@ do_vlan_set_egress_map (char **argv)
 	int to = strtol (*argv++, NULL, 10);
 
 	return nm_platform_vlan_set_egress_map (ifindex, from, to);
+}
+
+static gboolean
+do_vlan_clear_maps (char **argv)
+{
+	int ifindex = parse_ifindex (*argv++);
+
+	return nm_platform_vlan_clear_maps (ifindex);
 }
 
 static gboolean
@@ -680,7 +696,7 @@ static const command_t commands[] = {
 	{ "bridge-add", "add bridge interface", do_bridge_add, 1, "<ifname>" },
 	{ "bond-add", "add bond interface", do_bond_add, 1, "<ifname>" },
 	{ "team-add", "add team interface", do_team_add, 1, "<ifname>" },
-	{ "vlan-add", "add vlan interface", do_vlan_add, 4, "<ifname> <parent> <vlanid> <vlanflags>" },
+	{ "vlan-add", "add vlan interface", do_vlan_add, 3, "<ifname> <parent> <vlanid>" },
 	{ "link-exists", "check ifname for existance", do_link_exists, 1, "<ifname>" },
 	{ "link-delete", "delete interface", do_link_delete, 1, "<ifname/ifindex>" },
 	{ "link-get-ifindex>", "get interface index", do_link_get_ifindex, 1, "<ifname>" },
@@ -713,10 +729,14 @@ static const command_t commands[] = {
 	{ "link-slave-get-option", "get slave option", do_slave_get_option, 2,
 		"<ifname/ifindex> <option>" },
 	{ "vlan-get-info", "get vlan info", do_vlan_get_info, 1, "<ifname/ifindex>" },
+	{ "vlan-set-flags", "set vlan flags", do_vlan_set_flags, 2,
+	  "<ifname/ifindex> <NMVlanFlags>" },
 	{ "vlan-set-ingress-map", "set vlan ingress map", do_vlan_set_ingress_map, 3,
-		"<ifname/ifindex> <from> <to>" },
+	  "<ifname/ifindex> <from> <to>" },
 	{ "vlan-set-egress-map", "set vlan egress map", do_vlan_set_egress_map, 3,
-		"<ifname/ifindex> <from> <to>" },
+	  "<ifname/ifindex> <from> <to>" },
+	{ "vlan-clear-maps", "clear vlan ingress/egress maps", do_vlan_clear_maps, 1,
+	  "<ifname/ifindex>" },
 	{ "veth-get-properties", "get veth properties", do_veth_get_properties, 1,
 	  "<ifname/ifindex>" },
 	{ "tun-get-properties", "get tun/tap properties", do_tun_get_properties, 1,

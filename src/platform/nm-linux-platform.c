@@ -1506,23 +1506,13 @@ link_get_mtu (NMPlatform *platform, int ifindex)
 }
 
 static int
-vlan_add (NMPlatform *platform, const char *name, int parent, int vlan_id, guint32 vlan_flags)
+vlan_add (NMPlatform *platform, const char *name, int parent, int vlan_id)
 {
 	struct nl_object *object = build_rtnl_link (0, name, NM_LINK_TYPE_VLAN);
 	struct rtnl_link *rtnllink = (struct rtnl_link *) object;
-	unsigned int kernel_flags;
-
-	kernel_flags = 0;
-	if (vlan_flags & NM_VLAN_FLAG_REORDER_HEADERS)
-		kernel_flags |= VLAN_FLAG_REORDER_HDR;
-	if (vlan_flags & NM_VLAN_FLAG_GVRP)
-		kernel_flags |= VLAN_FLAG_GVRP;
-	if (vlan_flags & NM_VLAN_FLAG_LOOSE_BINDING)
-		kernel_flags |= VLAN_FLAG_LOOSE_BINDING;
 
 	rtnl_link_set_link (rtnllink, parent);
 	rtnl_link_vlan_set_id (rtnllink, vlan_id);
-	rtnl_link_vlan_set_flags (rtnllink, vlan_flags);
 
 	return add_object (platform, object);
 }
@@ -1538,6 +1528,26 @@ vlan_get_info (NMPlatform *platform, int ifindex, int *parent, int *vlan_id)
 		*vlan_id = rtnllink ? rtnl_link_vlan_get_id (rtnllink) : 0;
 
 	return !!rtnllink;
+}
+
+static gboolean
+vlan_set_flags (NMPlatform *platform, int ifindex, guint32 vlanflags)
+{
+	auto_nl_object struct rtnl_link *change = rtnl_link_alloc ();
+	unsigned int kernel_flags;
+
+	g_assert (change);
+
+	kernel_flags = 0;
+	if (vlanflags & NM_VLAN_FLAG_REORDER_HEADERS)
+		kernel_flags |= VLAN_FLAG_REORDER_HDR;
+	if (vlanflags & NM_VLAN_FLAG_GVRP)
+		kernel_flags |= VLAN_FLAG_GVRP;
+	if (vlanflags & NM_VLAN_FLAG_LOOSE_BINDING)
+		kernel_flags |= VLAN_FLAG_LOOSE_BINDING;
+
+	rtnl_link_vlan_set_flags (change, kernel_flags);
+	return link_change (platform, ifindex, change);
 }
 
 static gboolean
@@ -1558,6 +1568,25 @@ vlan_set_egress_map (NMPlatform *platform, int ifindex, int from, int to)
 
 	g_assert (change);
 	rtnl_link_vlan_set_egress_map (change, from, to);
+
+	return link_change (platform, ifindex, change);
+}
+
+static gboolean
+vlan_clear_maps (NMPlatform *platform, int ifindex)
+{
+	auto_nl_object struct rtnl_link *change = rtnl_link_alloc ();
+	struct vlan_map *egress;
+	int i, len;
+
+	g_assert (change);
+
+	for (i = 0; i <= VLAN_PRIO_MAX; i++)
+		rtnl_link_vlan_set_ingress_map (change, i, 0);
+
+	egress = rtnl_link_vlan_get_egress_map (change, &len);
+	for (i = 0; i < len; i++)
+		rtnl_link_vlan_set_egress_map (change, egress[i].vm_from, 0);
 
 	return link_change (platform, ifindex, change);
 }
@@ -2488,8 +2517,10 @@ nm_linux_platform_class_init (NMLinuxPlatformClass *klass)
 
 	platform_class->vlan_add = vlan_add;
 	platform_class->vlan_get_info = vlan_get_info;
+	platform_class->vlan_set_flags = vlan_set_flags;
 	platform_class->vlan_set_ingress_map = vlan_set_ingress_map;
 	platform_class->vlan_set_egress_map = vlan_set_egress_map;
+	platform_class->vlan_clear_maps = vlan_clear_maps;
 
 	platform_class->infiniband_partition_add = infiniband_partition_add;
 

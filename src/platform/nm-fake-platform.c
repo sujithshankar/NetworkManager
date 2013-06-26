@@ -577,7 +577,7 @@ slave_get_option (NMPlatform *platform, int slave, const char *option)
 }
 
 static gboolean
-vlan_add (NMPlatform *platform, const char *name, int parent, int vlan_id, guint32 vlan_flags)
+vlan_add (NMPlatform *platform, const char *name, int parent, int vlan_id)
 {
 	NMFakePlatformLink *device;
 
@@ -610,6 +610,12 @@ vlan_get_info (NMPlatform *platform, int ifindex, int *parent, int *vlan_id)
 }
 
 static gboolean
+vlan_set_flags (NMPlatform *platform, int ifindex, guint32 vlanflags)
+{
+	return !!link_get (platform, ifindex);
+}
+
+static gboolean
 vlan_set_ingress_map (NMPlatform *platform, int ifindex, int from, int to)
 {
 	return !!link_get (platform, ifindex);
@@ -617,6 +623,12 @@ vlan_set_ingress_map (NMPlatform *platform, int ifindex, int from, int to)
 
 static gboolean
 vlan_set_egress_map (NMPlatform *platform, int ifindex, int from, int to)
+{
+	return !!link_get (platform, ifindex);
+}
+
+static gboolean
+vlan_clear_maps (NMPlatform *platform, int ifindex)
 {
 	return !!link_get (platform, ifindex);
 }
@@ -1122,8 +1134,10 @@ nm_fake_platform_class_init (NMFakePlatformClass *klass)
 
 	platform_class->vlan_add = vlan_add;
 	platform_class->vlan_get_info = vlan_get_info;
+	platform_class->vlan_set_flags = vlan_set_flags;
 	platform_class->vlan_set_ingress_map = vlan_set_ingress_map;
 	platform_class->vlan_set_egress_map = vlan_set_egress_map;
+	platform_class->vlan_clear_maps = vlan_clear_maps;
 
 	platform_class->infiniband_partition_add = infiniband_partition_add;
 

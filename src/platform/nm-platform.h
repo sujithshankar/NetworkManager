@@ -232,10 +232,12 @@ typedef struct {
 	gboolean (*slave_set_option) (NMPlatform *, int ifindex, const char *option, const char *value);
 	char * (*slave_get_option) (NMPlatform *, int ifindex, const char *option);
 
-	gboolean (*vlan_add) (NMPlatform *, const char *name, int parent, int vlanid, guint32 vlanflags);
+	gboolean (*vlan_add) (NMPlatform *, const char *name, int parent, int vlanid);
 	gboolean (*vlan_get_info) (NMPlatform *, int ifindex, int *parent, int *vlan_id);
+	gboolean (*vlan_set_flags) (NMPlatform *, int ifindex, guint32 vlanflags);
 	gboolean (*vlan_set_ingress_map) (NMPlatform *, int ifindex, int from, int to);
 	gboolean (*vlan_set_egress_map) (NMPlatform *, int ifindex, int from, int to);
+	gboolean (*vlan_clear_maps) (NMPlatform *, int ifindex);
 
 	gboolean (*infiniband_partition_add) (NMPlatform *, int parent, int p_key);
 
@@ -348,10 +350,12 @@ char *nm_platform_master_get_option (int ifindex, const char *option);
 gboolean nm_platform_slave_set_option (int ifindex, const char *option, const char *value);
 char *nm_platform_slave_get_option (int ifindex, const char *option);
 
-gboolean nm_platform_vlan_add (const char *name, int parent, int vlanid, guint32 vlanflags);
+gboolean nm_platform_vlan_add (const char *name, int parent, int vlanid);
 gboolean nm_platform_vlan_get_info (int ifindex, int *parent, int *vlanid);
+gboolean nm_platform_vlan_set_flags (int ifindex, guint32 vlanflags);
 gboolean nm_platform_vlan_set_ingress_map (int ifindex, int from, int to);
 gboolean nm_platform_vlan_set_egress_map (int ifindex, int from, int to);
+gboolean nm_platform_vlan_clear_maps (int ifindex);
 
 gboolean nm_platform_infiniband_partition_add (int parent, int p_key);
 

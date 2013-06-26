@@ -110,9 +110,13 @@ test_bogus(void)
 
 	g_assert (!nm_platform_vlan_get_info (BOGUS_IFINDEX, NULL, NULL));
 	error (NM_PLATFORM_ERROR_NOT_FOUND);
+	g_assert (!nm_platform_vlan_set_flags (BOGUS_IFINDEX, 0));
+	error (NM_PLATFORM_ERROR_NOT_FOUND);
 	g_assert (!nm_platform_vlan_set_ingress_map (BOGUS_IFINDEX, 0, 0));
 	error (NM_PLATFORM_ERROR_NOT_FOUND);
 	g_assert (!nm_platform_vlan_set_egress_map (BOGUS_IFINDEX, 0, 0));
+	error (NM_PLATFORM_ERROR_NOT_FOUND);
+	g_assert (!nm_platform_vlan_clear_maps (BOGUS_IFINDEX));
 	error (NM_PLATFORM_ERROR_NOT_FOUND);
 }
 
@@ -168,8 +172,8 @@ virtual_add (NMLinkType link_type, const char *name)
 		free_signal (parent_changed);
 
 		return nm_platform_vlan_add (name,
-			nm_platform_link_get_ifindex (PARENT_NAME),
-			VLAN_ID, 0);
+		                             nm_platform_link_get_ifindex (PARENT_NAME),
+		                             VLAN_ID);
 	}
 	default:
 		g_error ("Link type %d unhandled.", link_type);
