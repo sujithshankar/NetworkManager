@@ -247,22 +247,12 @@ nm_sources = \
 	nm-rfkill-manager.c \
 	nm-rfkill-manager.h \
 	nm-session-monitor.h \
-	nm-session-utils.c \
-	nm-session-utils.h \
+	nm-session-monitor.c \
 	nm-sleep-monitor.h \
 	nm-types.h \
 	NetworkManagerUtils.c \
 	NetworkManagerUtils.h
 
-if SESSION_TRACKING_SYSTEMD
-nm_sources += nm-session-monitor-systemd.c
-else
-if SESSION_TRACKING_CK
-nm_sources += nm-session-monitor-ck.c
-else
-nm_sources += nm-session-monitor-null.c
-endif
-endif
 
 if SUSPEND_RESUME_SYSTEMD
 nm_sources += nm-sleep-monitor-systemd.c
@@ -351,10 +341,6 @@ AM_CPPFLAGS += \
 	-DPPPD_PLUGIN_DIR=\"$(PPPD_PLUGIN_DIR)\" \
 	\
 	$(NULL)
-
-if SESSION_TRACKING_CK
-AM_CPPFLAGS += -DCKDB_PATH=\"${CKDB_PATH}\"
-endif
 
 libNetworkManager_la_SOURCES = \
 	$(nm_sources) \
