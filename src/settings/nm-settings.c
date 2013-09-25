@@ -31,6 +31,7 @@
 #include <pwd.h>
 #include <dbus/dbus.h>
 #include <dbus/dbus-glib-lowlevel.h>
+#include <gio/gio.h>
 
 #include <NetworkManager.h>
 #include <nm-connection.h>
@@ -135,6 +136,9 @@ typedef struct {
 	gboolean connections_loaded;
 	GHashTable *connections;
 	GSList *unmanaged_specs;
+
+	char *hostname_cache;
+	GFileMonitor *hostname_monitor;
 } NMSettingsPrivate;
 
 #define NM_SETTINGS_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTINGS, NMSettingsPrivate))
@@ -168,6 +172,67 @@ plugin_connection_added (NMSystemConfigInterface *config,
                          gpointer user_data)
 {
 	claim_connection (NM_SETTINGS (user_data), connection, TRUE);
+}
+
+
+#define HOSTNAME_FILE   "/etc/hostname"
+
+static gboolean
+hostname_reload (NMSettings *self)
+{
+	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
+	GSList *iter;
+	char *hostname = NULL;
+
+	/* Select the hostname returned from the first plugin that provides one. */
+	for (iter = priv->plugins; iter; iter = iter->next) {
+		NMSystemConfigInterfaceCapabilities caps = NM_SYSTEM_CONFIG_INTERFACE_CAP_NONE;
+
+		g_object_get (G_OBJECT (iter->data), NM_SYSTEM_CONFIG_INTERFACE_CAPABILITIES, &caps, NULL);
+		if (caps & NM_SYSTEM_CONFIG_INTERFACE_CAP_MODIFY_HOSTNAME) {
+			g_object_get (G_OBJECT (iter->data), NM_SYSTEM_CONFIG_INTERFACE_HOSTNAME, &hostname, NULL);
+			if (hostname && *hostname)
+				goto END;
+			g_free (hostname);
+		}
+	}
+
+	/* as fallback, try to read the HOSTNAME_FILE... */
+	if (g_file_get_contents (HOSTNAME_FILE, &hostname, NULL, NULL)) {
+		g_strchomp (hostname);
+		if (!*hostname) {
+			g_free (hostname);
+			hostname = NULL;
+		}
+	}
+
+END:
+	if (g_strcmp0 (priv->hostname_cache, hostname) == 0) {
+		g_free (hostname);
+		return FALSE;
+	}
+
+	g_free (priv->hostname_cache);
+	priv->hostname_cache = hostname;
+	return TRUE;
+}
+
+
+static void
+hostname_changed (NMSettings *self)
+{
+	if (hostname_reload (self))
+		g_object_notify (G_OBJECT (self), NM_SETTINGS_HOSTNAME);
+}
+
+static void
+hostname_changed_monitor (GFileMonitor *monitor,
+                          GFile *file,
+                          GFile *other_file,
+                          GFileMonitorEvent event_type,
+                          gpointer user_data)
+{
+	hostname_changed (NM_SETTINGS (user_data));
 }
 
 static void
@@ -437,30 +502,14 @@ get_plugin (NMSettings *self, guint32 capability)
 	return NULL;
 }
 
+
 /* Returns an allocated string which the caller owns and must eventually free */
 char *
 nm_settings_get_hostname (NMSettings *self)
 {
-	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
-	GSList *iter;
-	char *hostname = NULL;
+	g_return_val_if_fail (NM_IS_SETTINGS (self), NULL);
 
-	/* Hostname returned is the hostname returned from the first plugin
-	 * that provides one.
-	 */
-	for (iter = priv->plugins; iter; iter = iter->next) {
-		NMSystemConfigInterfaceCapabilities caps = NM_SYSTEM_CONFIG_INTERFACE_CAP_NONE;
-
-		g_object_get (G_OBJECT (iter->data), NM_SYSTEM_CONFIG_INTERFACE_CAPABILITIES, &caps, NULL);
-		if (caps & NM_SYSTEM_CONFIG_INTERFACE_CAP_MODIFY_HOSTNAME) {
-			g_object_get (G_OBJECT (iter->data), NM_SYSTEM_CONFIG_INTERFACE_HOSTNAME, &hostname, NULL);
-			if (hostname && strlen (hostname))
-				return hostname;
-			g_free (hostname);
-		}
-	}
-
-	return NULL;
+	return g_strdup (NM_SETTINGS_GET_PRIVATE (self)->hostname_cache);
 }
 
 static gboolean
@@ -505,11 +554,11 @@ unmanaged_specs_changed (NMSystemConfigInterface *config,
 }
 
 static void
-hostname_changed (NMSystemConfigInterface *config,
-                  GParamSpec *pspec,
-                  gpointer user_data)
+hostname_changed_plugin (NMSystemConfigInterface *config,
+                         GParamSpec *pspec,
+                         gpointer user_data)
 {
-	g_object_notify (G_OBJECT (user_data), NM_SETTINGS_HOSTNAME);
+	hostname_changed (NM_SETTINGS (user_data));
 }
 
 static void
@@ -526,7 +575,7 @@ add_plugin (NMSettings *self, NMSystemConfigInterface *plugin)
 
 	priv->plugins = g_slist_append (priv->plugins, g_object_ref (plugin));
 
-	g_signal_connect (plugin, "notify::hostname", G_CALLBACK (hostname_changed), self);
+	g_signal_connect (plugin, "notify::hostname", G_CALLBACK (hostname_changed_plugin), self);
 
 	nm_system_config_interface_init (plugin, NULL);
 
@@ -1673,6 +1722,9 @@ nm_settings_new (GError **error)
 		return NULL;
 	}
 
+	/* force reload of the hostname */
+	hostname_changed (self);
+
 	unmanaged_specs_changed (NULL, self);
 
 	nm_dbus_manager_register_object (priv->dbus_mgr, NM_DBUS_PATH_SETTINGS, self);
@@ -1691,11 +1743,21 @@ connection_provider_init (NMConnectionProvider *cp_class)
 static void
 nm_settings_init (NMSettings *self)
 {
+	GFile *file;
+	GFileMonitor *monitor;
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 
 	priv->connections = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_object_unref);
 
 	priv->session_monitor = nm_session_monitor_get ();
+
+	file = g_file_new_for_path (HOSTNAME_FILE);
+	monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, NULL);
+	g_object_unref (file);
+	if (monitor) {
+		g_signal_connect (monitor, "changed", G_CALLBACK (hostname_changed_monitor), self);
+		priv->hostname_monitor = monitor;
+	}
 
 	/* Hold a reference to the agent manager so it stays alive; the only
 	 * other holders are NMSettingsConnection objects which are often
@@ -1714,14 +1776,20 @@ dispose (GObject *object)
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	GSList *iter;
 
+	if (priv->hostname_monitor) {
+		g_signal_handlers_disconnect_by_func (priv->hostname_monitor, G_CALLBACK (hostname_changed_monitor), self);
+		g_file_monitor_cancel (priv->hostname_monitor);
+		g_clear_object (&priv->hostname_monitor);
+	}
+
 	for (iter = priv->auths; iter; iter = g_slist_next (iter))
 		nm_auth_chain_unref ((NMAuthChain *) iter->data);
 	g_slist_free (priv->auths);
 
 	priv->dbus_mgr = NULL;
 
-	g_object_unref (priv->session_monitor);
-	g_object_unref (priv->agent_mgr);
+	g_clear_object (&priv->session_monitor);
+	g_clear_object (&priv->agent_mgr);
 
 	G_OBJECT_CLASS (nm_settings_parent_class)->dispose (object);
 }
@@ -1738,6 +1806,8 @@ finalize (GObject *object)
 
 	g_slist_foreach (priv->plugins, (GFunc) g_object_unref, NULL);
 	g_slist_free (priv->plugins);
+
+	g_free (priv->hostname_cache);
 
 	G_OBJECT_CLASS (nm_settings_parent_class)->finalize (object);
 }

@@ -831,11 +831,10 @@ dispose (GObject *object)
 	}
 
 	if (priv->hostname_monitor) {
-		if (priv->hostname_monitor_id)
-			g_signal_handler_disconnect (priv->hostname_monitor, priv->hostname_monitor_id);
+		g_signal_handler_disconnect (priv->hostname_monitor, priv->hostname_monitor_id);
 
 		g_file_monitor_cancel (priv->hostname_monitor);
-		g_object_unref (priv->hostname_monitor);
+		g_clear_object (&priv->hostname_monitor);
 	}
 
 	g_free (priv->hostname);
@@ -846,11 +845,10 @@ dispose (GObject *object)
 	}
 
 	if (priv->ifcfg_monitor) {
-		if (priv->ifcfg_monitor_id)
-			g_signal_handler_disconnect (priv->ifcfg_monitor, priv->ifcfg_monitor_id);
+		g_signal_handler_disconnect (priv->ifcfg_monitor, priv->ifcfg_monitor_id);
 
 		g_file_monitor_cancel (priv->ifcfg_monitor);
-		g_object_unref (priv->ifcfg_monitor);
+		g_clear_object (&priv->ifcfg_monitor);
 	}
 
 	G_OBJECT_CLASS (sc_plugin_ifcfg_parent_class)->dispose (object);
