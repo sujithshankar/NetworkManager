@@ -426,12 +426,11 @@ get_plugin (NMSettings *self, guint32 capability)
 
 	g_return_val_if_fail (self != NULL, NULL);
 
-	/* Do any of the plugins support setting the hostname? */
 	for (iter = priv->plugins; iter; iter = iter->next) {
 		NMSystemConfigInterfaceCapabilities caps = NM_SYSTEM_CONFIG_INTERFACE_CAP_NONE;
 
 		g_object_get (G_OBJECT (iter->data), NM_SYSTEM_CONFIG_INTERFACE_CAPABILITIES, &caps, NULL);
-		if (caps & capability)
+		if ((caps & capability) == capability)
 			return NM_SYSTEM_CONFIG_INTERFACE (iter->data);
 	}
 
