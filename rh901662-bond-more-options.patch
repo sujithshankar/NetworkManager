@@ -1,0 +1,599 @@
+From 91e8f4163f7a1e12b75b0d8ab81e738f320ac71e Mon Sep 17 00:00:00 2001
+From: Dan Williams <dcbw@redhat.com>
+Date: Tue, 22 Jan 2013 19:03:00 -0600
+Subject: [PATCH 2/2] bond: handle bond options more gracefully
+
+The patch was updated for rh #905532 by jklimes
+---
+ libnm-util/nm-setting-bond.c              |  134 ++++++++++++++++++----
+ libnm-util/nm-setting-bond.h              |   20 +++-
+ src/nm-device-bond.c                      |  172 ++++++++++++++++++++++++++---
+ src/nm-system.c                           |   69 ------------
+ src/nm-system.h                           |    2 -
+ system-settings/plugins/ifcfg-rh/reader.c |   18 +++-
+ 6 files changed, 299 insertions(+), 116 deletions(-)
+
+diff --git a/libnm-util/nm-setting-bond.c b/libnm-util/nm-setting-bond.c
+index c412957..e28a47b 100644
+--- a/libnm-util/nm-setting-bond.c
++++ b/libnm-util/nm-setting-bond.c
+@@ -23,6 +23,10 @@
+ 
+ #include <string.h>
+ #include <ctype.h>
++#include <stdlib.h>
++#include <errno.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
+ #include <dbus/dbus-glib.h>
+ 
+ #include "nm-setting-bond.h"
+@@ -74,18 +78,43 @@ enum {
+ 	LAST_PROP
+ };
+ 
++enum {
++	TYPE_INT,
++	TYPE_STR,
++	TYPE_BOTH,
++	TYPE_IP,
++};
++
+ typedef struct {
+ 	const char *opt;
+ 	const char *val;
++	guint opt_type;
++	guint min;
++	guint max;
++	char *list[10];
+ } BondDefault;
+ 
+ static const BondDefault defaults[] = {
+-	{ NM_SETTING_BOND_OPTION_MODE,          "balance-rr" },
+-	{ NM_SETTING_BOND_OPTION_MIIMON,        "100"        },
+-	{ NM_SETTING_BOND_OPTION_DOWNDELAY,     "0"          },
+-	{ NM_SETTING_BOND_OPTION_UPDELAY,       "0"          },
+-	{ NM_SETTING_BOND_OPTION_ARP_INTERVAL,  "0"          },
+-	{ NM_SETTING_BOND_OPTION_ARP_IP_TARGET, ""           },
++	{ NM_SETTING_BOND_OPTION_MODE,             "balance-rr", TYPE_BOTH, 0, 6,
++	  { "balance-rr", "active-backup", "balance-xor", "broadcast", "802.3ad", "balance-tlb", "balance-alb", NULL } },
++	{ NM_SETTING_BOND_OPTION_MIIMON,           "100",        TYPE_INT, 0, G_MAXINT },
++	{ NM_SETTING_BOND_OPTION_DOWNDELAY,        "0",          TYPE_INT, 0, G_MAXINT },
++	{ NM_SETTING_BOND_OPTION_UPDELAY,          "0",          TYPE_INT, 0, G_MAXINT },
++	{ NM_SETTING_BOND_OPTION_ARP_INTERVAL,     "0",          TYPE_INT, 0, G_MAXINT },
++	{ NM_SETTING_BOND_OPTION_ARP_IP_TARGET,    "",           TYPE_IP },
++	{ NM_SETTING_BOND_OPTION_ARP_VALIDATE,     "0",          TYPE_BOTH, 0, 3,
++	  { "none", "active", "backup", "all", NULL } },
++	{ NM_SETTING_BOND_OPTION_PRIMARY,          "",           TYPE_STR },
++	{ NM_SETTING_BOND_OPTION_PRIMARY_RESELECT, "0",          TYPE_BOTH, 0, 2,
++	  { "always", "better", "failure", NULL } },
++	{ NM_SETTING_BOND_OPTION_FAIL_OVER_MAC,    "0",          TYPE_BOTH, 0, 2,
++	  { "none", "active", "follow", NULL } },
++	{ NM_SETTING_BOND_OPTION_USE_CARRIER,      "1",          TYPE_INT, 0, 1 },
++	{ NM_SETTING_BOND_OPTION_AD_SELECT,        "0",          TYPE_BOTH, 0, 2,
++	  { "stable", "bandwidth", "count", NULL } },
++	{ NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, "0",          TYPE_BOTH, 0, 2,
++	  { "layer2", "layer3+4", "layer2+3", NULL } },
++	{ NM_SETTING_BOND_OPTION_RESEND_IGMP,      "1",          TYPE_INT, 0, 255 },
+ };
+ 
+ /**
+@@ -184,7 +213,61 @@ nm_setting_bond_get_option (NMSettingBond *setting,
+ }
+ 
+ static gboolean
+-validate_option (const char *name)
++validate_int (const char *name, const char *value, const BondDefault *def)
++{
++	glong num;
++	guint i;
++
++	for (i = 0; i < strlen (value); i++) {
++		if (!isdigit (value[i]) && value[i] != '-')
++			return FALSE;
++	}
++
++	errno = 0;
++	num = strtol (value, NULL, 10);
++	if (errno)
++		return FALSE;
++	if (num < def->min || num > def->max)
++		return FALSE;
++
++	return TRUE;
++}
++
++static gboolean
++validate_list (const char *name, const char *value, const BondDefault *def)
++{
++	guint i;
++
++	for (i = 0; def->list && i < G_N_ELEMENTS (def->list) && def->list[i]; i++) {
++		if (g_strcmp0 (def->list[i], value) == 0)
++			return TRUE;
++	}
++
++	/* empty validation list means all values pass */
++	return (def->list == NULL || def->list[0] == NULL) ? TRUE : FALSE;
++}
++
++static gboolean
++validate_ip (const char *name, const char *value)
++{
++	char **ips, **iter;
++	gboolean success = TRUE;
++	struct in_addr addr;
++
++	if (!value || !value[0])
++		return FALSE;
++
++	ips = g_strsplit_set (value, ",", 0);
++	for (iter = ips; iter && *iter && success; iter++)
++		success = !!inet_aton (*iter, &addr);
++	g_strfreev (ips);
++
++	return success;
++}
++
++/* If value is NULL, validates name only */
++static gboolean
++validate_option (const char *name, const char *value)
+ {
+ 	guint i;
+ 
+@@ -192,8 +275,21 @@ validate_option (const char *name)
+ 	g_return_val_if_fail (name[0] != '\0', FALSE);
+ 
+ 	for (i = 0; i < G_N_ELEMENTS (defaults); i++) {
+-		if (g_strcmp0 (defaults[i].opt, name) == 0)
+-			return TRUE;
++		if (g_strcmp0 (defaults[i].opt, name) == 0) {
++			if (value == NULL)
++				return TRUE;
++			else if (defaults[i].opt_type == TYPE_INT)
++				return validate_int (name, value, &defaults[i]);
++			else if (defaults[i].opt_type == TYPE_STR)
++				return validate_list (name, value, &defaults[i]);
++			else if (defaults[i].opt_type == TYPE_BOTH)
++				return    validate_int (name, value, &defaults[i])
++				       || validate_list (name, value, &defaults[i]);
++			else if (defaults[i].opt_type == TYPE_IP)
++				return validate_ip (name, value);
++
++			return FALSE;
++		}
+ 	}
+ 	return FALSE;
+ }
+@@ -214,7 +310,7 @@ nm_setting_bond_get_option_by_name (NMSettingBond *setting,
+                                     const char *name)
+ {
+ 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), NULL);
+-	g_return_val_if_fail (validate_option (name), NULL);
++	g_return_val_if_fail (validate_option (name, NULL), NULL);
+ 
+ 	return g_hash_table_lookup (NM_SETTING_BOND_GET_PRIVATE (setting)->options, name);
+ }
+@@ -237,15 +333,10 @@ gboolean nm_setting_bond_add_option (NMSettingBond *setting,
+                                      const char *name,
+                                      const char *value)
+ {
+-	size_t value_len;
+-
+ 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), FALSE);
+-	g_return_val_if_fail (validate_option (name), FALSE);
++	g_return_val_if_fail (validate_option (name, value), FALSE);
+ 	g_return_val_if_fail (value != NULL, FALSE);
+ 
+-	value_len = strlen (value);
+-	g_return_val_if_fail (value_len > 0 && value_len < 200, FALSE);
+-
+ 	g_hash_table_insert (NM_SETTING_BOND_GET_PRIVATE (setting)->options,
+ 	                     g_strdup (name), g_strdup (value));
+ 	return TRUE;
+@@ -267,7 +358,7 @@ nm_setting_bond_remove_option (NMSettingBond *setting,
+                                const char *name)
+ {
+ 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), FALSE);
+-	g_return_val_if_fail (validate_option (name), FALSE);
++	g_return_val_if_fail (validate_option (name, NULL), FALSE);
+ 
+ 	return g_hash_table_remove (NM_SETTING_BOND_GET_PRIVATE (setting)->options, name);
+ }
+@@ -309,7 +400,7 @@ nm_setting_bond_get_option_default (NMSettingBond *setting, const char *name)
+ 	guint i;
+ 
+ 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), NULL);
+-	g_return_val_if_fail (validate_option (name), NULL);
++	g_return_val_if_fail (validate_option (name, NULL), NULL);
+ 
+ 	for (i = 0; i < G_N_ELEMENTS (defaults); i++) {
+ 		if (g_strcmp0 (defaults[i].opt, name) == 0)
+@@ -352,9 +443,7 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
+ 
+ 	g_hash_table_iter_init (&iter, priv->options);
+ 	while (g_hash_table_iter_next (&iter, (gpointer) &key, (gpointer) &value)) {
+-		if (   !validate_option (key)
+-		    || !value[0]
+-		    || (strlen (value) > 200)) {
++		if (!value[0] || !validate_option (key, value)) {
+ 			g_set_error (error,
+ 			             NM_SETTING_BOND_ERROR,
+ 			             NM_SETTING_BOND_ERROR_INVALID_PROPERTY,
+@@ -394,9 +483,6 @@ nm_setting_bond_init (NMSettingBond *setting)
+ 	              NULL);
+ 
+ 	priv->options = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+-
+-	/* Default values: */
+-	nm_setting_bond_add_option (setting, NM_SETTING_BOND_OPTION_MIIMON, "100");
+ }
+ 
+ static void
+diff --git a/libnm-util/nm-setting-bond.h b/libnm-util/nm-setting-bond.h
+index 1980964..999ace1 100644
+--- a/libnm-util/nm-setting-bond.h
++++ b/libnm-util/nm-setting-bond.h
+@@ -57,12 +57,20 @@ GQuark nm_setting_bond_error_quark (void);
+ #define NM_SETTING_BOND_OPTIONS "options"
+ 
+ /* Valid options for the 'options' property */
+-#define NM_SETTING_BOND_OPTION_MODE          "mode"
+-#define NM_SETTING_BOND_OPTION_MIIMON        "miimon"
+-#define NM_SETTING_BOND_OPTION_DOWNDELAY     "downdelay"
+-#define NM_SETTING_BOND_OPTION_UPDELAY       "updelay"
+-#define NM_SETTING_BOND_OPTION_ARP_INTERVAL  "arp_interval"
+-#define NM_SETTING_BOND_OPTION_ARP_IP_TARGET "arp_ip_target"
++#define NM_SETTING_BOND_OPTION_MODE             "mode"
++#define NM_SETTING_BOND_OPTION_MIIMON           "miimon"
++#define NM_SETTING_BOND_OPTION_DOWNDELAY        "downdelay"
++#define NM_SETTING_BOND_OPTION_UPDELAY          "updelay"
++#define NM_SETTING_BOND_OPTION_ARP_INTERVAL     "arp_interval"
++#define NM_SETTING_BOND_OPTION_ARP_IP_TARGET    "arp_ip_target"
++#define NM_SETTING_BOND_OPTION_ARP_VALIDATE     "arp_validate"
++#define NM_SETTING_BOND_OPTION_PRIMARY          "primary"
++#define NM_SETTING_BOND_OPTION_PRIMARY_RESELECT "primary_reselect"
++#define NM_SETTING_BOND_OPTION_FAIL_OVER_MAC    "fail_over_mac"
++#define NM_SETTING_BOND_OPTION_USE_CARRIER      "use_carrier"
++#define NM_SETTING_BOND_OPTION_AD_SELECT        "ad_select"
++#define NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY "xmit_hash_policy"
++#define NM_SETTING_BOND_OPTION_RESEND_IGMP      "resend_igmp"
+ 
+ typedef struct {
+ 	NMSetting parent;
+diff --git a/src/nm-device-bond.c b/src/nm-device-bond.c
+index 4ab0fa5..2b6cbf0 100644
+--- a/src/nm-device-bond.c
++++ b/src/nm-device-bond.c
+@@ -24,6 +24,8 @@
+ #include <glib/gi18n.h>
+ 
+ #include <netinet/ether.h>
++#include <errno.h>
++#include <stdlib.h>
+ 
+ #include "nm-device-bond.h"
+ #include "nm-device-interface.h"
+@@ -302,13 +304,167 @@ connection_match_config (NMDevice *self, const GSList *connections)
+ 
+ /******************************************************************/
+ 
++static gboolean
++set_bond_attr (const char *iface, const char *attr, const char *value)
++{
++	char file[FILENAME_MAX];
++	gboolean ret;
++
++	snprintf (file, sizeof (file), "/sys/class/net/%s/bonding/%s", iface, attr);
++	ret = nm_utils_do_sysctl (file, value);
++	if (!ret) {
++		nm_log_warn (LOGD_HW, "(%s): failed to set bonding attribute "
++		             "'%s' to '%s': %d", iface, attr, value, errno);
++	}
++	return ret;
++}
++
++static void
++set_arp_targets (const char *iface,
++                 const char *value,
++                 const char *delim,
++                 const char *prefix)
++{
++	char **items, **iter, *tmp;
++
++	items = g_strsplit_set (value, delim, 0);
++	for (iter = items; iter && *iter; iter++) {
++		if (*iter[0]) {
++			tmp = g_strdup_printf ("%s%s", prefix, *iter);
++			set_bond_attr (iface, "arp_ip_target", tmp);
++			g_free (tmp);
++		}
++	}
++	g_strfreev (items);
++}
++
++static void
++set_simple_option (const char *iface,
++                   const char *attr,
++                   NMSettingBond *s_bond,
++                   const char *opt)
++{
++	const char *value, *def;
++
++	value = nm_setting_bond_get_option_by_name (s_bond, opt);
++	def = nm_setting_bond_get_option_default (s_bond, opt);
++	set_bond_attr (iface, attr, value ? value : def);
++}
++
++static NMActStageReturn
++apply_bonding_config (NMDevice *device)
++{
++	NMConnection *connection;
++	NMSettingBond *s_bond;
++	const char *iface = nm_device_get_ip_iface (device);
++	const char *mode, *value;
++	char *path, *contents;
++	gboolean set_arp_interval = TRUE;
++
++	/* Option restrictions:
++	 *
++	 * arp_interval conflicts miimon > 0
++	 * arp_interval conflicts [ alb, tlb ]
++	 * arp_validate needs [ active-backup ]
++	 * downdelay needs miimon
++	 * updelay needs miimon
++	 * primary needs [ active-backup, tlb, alb ]
++	 *
++	 * clearing miimon requires that arp_interval be 0, but clearing
++	 *     arp_interval doesn't require miimon to be 0
++	 */
++
++	connection = nm_device_get_connection (device);
++	g_assert (connection);
++	s_bond = nm_connection_get_setting_bond (connection);
++	g_assert (s_bond);
++
++	mode = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_MODE);
++	if (mode == NULL)
++		mode = "balance-rr";
++
++	value = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_MIIMON);
++	if (value && atoi (value)) {
++		/* clear arp interval */
++		set_bond_attr (iface, "arp_interval", "0");
++		set_arp_interval = FALSE;
++
++		set_bond_attr (iface, "miimon", value);
++		set_simple_option (iface, "updelay", s_bond, NM_SETTING_BOND_OPTION_UPDELAY);
++		set_simple_option (iface, "downdelay", s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY);
++	} else if (!value) {
++		/* If not given, and arp_interval is not given, default to 100 */
++		long int val_int;
++		char *end;
++
++		value = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_ARP_INTERVAL);
++		errno = 0;
++		val_int = strtol (value ? value : "0", &end, 10);
++		if (!value || (val_int == 0 && errno == 0 && *end == '\0'))
++			set_bond_attr (iface, "miimon", "100");
++	}
++
++	/* The stuff after 'mode' requires the given mode or doesn't care */
++	set_bond_attr (iface, "mode", mode);
++
++	/* arp_interval not compatible with ALB, TLB */
++	if (g_strcmp0 (mode, "balance-alb") == 0 || g_strcmp0 (mode, "balance-tlb") == 0)
++		set_arp_interval = FALSE;
++
++	if (set_arp_interval) {
++		set_simple_option (iface, "arp_interval", s_bond, NM_SETTING_BOND_OPTION_ARP_INTERVAL);
++
++		/* Just let miimon get cleared automatically; even setting miimon to
++		 * 0 (disabled) clears arp_interval.
++		 */
++	}
++
++	value = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_ARP_VALIDATE);
++	/* arp_validate > 0 only valid in active-backup mode */
++	if (   value
++	    && g_strcmp0 (value, "0") != 0
++	    && g_strcmp0 (value, "none") != 0
++	    && g_strcmp0 (mode, "active-backup") == 0)
++		set_bond_attr (iface, "arp_validate", value);
++	else
++		set_bond_attr (iface, "arp_validate", "0");
++
++	if (   g_strcmp0 (mode, "active-backup") == 0
++	    || g_strcmp0 (mode, "balance-alb") == 0
++	    || g_strcmp0 (mode, "balance-tlb") == 0) {
++		value = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_PRIMARY);
++		set_bond_attr (iface, "primary", value ? value : "");
++	}
++
++	/* Clear ARP targets */
++	path = g_strdup_printf ("/sys/class/net/%s/bonding/arp_ip_target", iface);
++	if (g_file_get_contents (path, &contents, NULL, NULL)) {
++		set_arp_targets (iface, contents, " \n", "-");
++		g_free (contents);
++	}
++	g_free (path);
++
++	/* Add new ARP targets */
++	value = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_ARP_IP_TARGET);
++	if (value)
++		set_arp_targets (iface, value, ",", "+");
++
++	set_simple_option (iface, "primary_reselect", s_bond, NM_SETTING_BOND_OPTION_PRIMARY_RESELECT);
++	set_simple_option (iface, "fail_over_mac", s_bond, NM_SETTING_BOND_OPTION_FAIL_OVER_MAC);
++	set_simple_option (iface, "use_carrier", s_bond, NM_SETTING_BOND_OPTION_USE_CARRIER);
++	set_simple_option (iface, "ad_select", s_bond, NM_SETTING_BOND_OPTION_AD_SELECT);
++	set_simple_option (iface, "xmit_hash_policy", s_bond, NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY);
++	set_simple_option (iface, "resend_igmp", s_bond, NM_SETTING_BOND_OPTION_RESEND_IGMP);
++
++	return NM_ACT_STAGE_RETURN_SUCCESS;
++}
++
++
+ static NMActStageReturn
+ real_act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
+ {
+ 	NMDeviceBondPrivate *priv = NM_DEVICE_BOND_GET_PRIVATE (dev);
+ 	NMActStageReturn ret = NM_ACT_STAGE_RETURN_SUCCESS;
+-	NMConnection *connection;
+-	NMSettingBond *s_bond;
+ 	gboolean no_firmware = FALSE;
+ 
+ 	g_return_val_if_fail (reason != NULL, NM_ACT_STAGE_RETURN_FAILURE);
+@@ -318,20 +468,14 @@ real_act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
+ 	priv->carrier_waiting = FALSE;
+ 
+ 	ret = NM_DEVICE_CLASS (nm_device_bond_parent_class)->act_stage1_prepare (dev, reason);
+-	if (ret == NM_ACT_STAGE_RETURN_SUCCESS) {
+-		connection = nm_device_get_connection (dev);
+-		g_assert (connection);
+-		s_bond = nm_connection_get_setting_bond (connection);
+-		g_assert (s_bond);
+-
+-		/* Interface must be down to set bond options */
+-		nm_device_hw_take_down (dev, TRUE);
++	if (ret != NM_ACT_STAGE_RETURN_SUCCESS)
++		return ret;
+ 
+-		if (!nm_system_apply_bonding_config (nm_device_get_ip_iface (dev), s_bond))
+-			ret = NM_ACT_STAGE_RETURN_FAILURE;
++	/* Interface must be down to set bond options */
++	nm_device_hw_take_down (dev, TRUE);
++	ret = apply_bonding_config (dev);
++	nm_device_hw_bring_up (dev, TRUE, &no_firmware);
+ 
+-		nm_device_hw_bring_up (dev, TRUE, &no_firmware);
+-	}
+ 	return ret;
+ }
+ 
+diff --git a/src/nm-system.c b/src/nm-system.c
+index 36a2c68..97164d6 100644
+--- a/src/nm-system.c
++++ b/src/nm-system.c
+@@ -1499,75 +1499,6 @@ nm_system_device_set_priority (const char *iface,
+ 	}
+ }
+ 
+-static gboolean
+-set_bond_attr (const char *iface, const char *attr, const char *value)
+-{
+-	char file[FILENAME_MAX];
+-	gboolean ret;
+-
+-	snprintf (file, sizeof (file), "/sys/class/net/%s/bonding/%s", iface, attr);
+-	ret = nm_utils_do_sysctl (file, value);
+-	if (!ret) {
+-		nm_log_warn (LOGD_HW, "(%s): failed to set bonding attribute "
+-		             "'%s' to '%s'", iface, attr, value);
+-	}
+-
+-	return ret;
+-}
+-
+-gboolean
+-nm_system_apply_bonding_config (const char *iface, NMSettingBond *s_bond)
+-{
+-	const char **opts, **iter;
+-
+-	g_return_val_if_fail (iface != NULL, FALSE);
+-
+-	/*
+-	 * FIXME:
+-	 *
+-	 * ifup-eth contains code to append targets if the value is prefixed
+-	 * with '+':
+-	 *
+-	 *  if [ "${key}" = "arp_ip_target" -a "${value:0:1}" != "+" ]; then
+-	 *  OLDIFS=$IFS;
+-	 *  IFS=',';
+-	 *  for arp_ip in $value; do
+-	 *      if ! grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/$key; then
+-	 *          echo +$arp_ip > /sys/class/net/${DEVICE}/bonding/$key
+-	 *      fi
+-	 *  done
+-	 *
+-	 * Not sure if this is actually being used and it seems dangerous as
+-	 * the result is pretty much unforeseeable.
+-	 */
+-
+-	/* Set bonding options; if the setting didn't specify a value for the
+-	 * option then use the default value to ensure there's no leakage of
+-	 * options from any previous connections to this one.
+-	 */
+-	opts = nm_setting_bond_get_valid_options (s_bond);
+-	for (iter = opts; iter && *iter; iter++) {
+-		const char *value;
+-		gboolean is_default = FALSE;
+-
+-		value = nm_setting_bond_get_option_by_name (s_bond, *iter);
+-		if (!value) {
+-			value = nm_setting_bond_get_option_default (s_bond, *iter);  /* use the default value */
+-			is_default = TRUE;
+-		}
+-
+-		nm_log_dbg (LOGD_DEVICE, "(%s): setting bond option '%s' to %s'%s'",
+-			        iface,
+-			        *iter,
+-			        is_default ? "default " : "",
+-			        value);
+-
+-		set_bond_attr (iface, *iter, value);
+-	}
+-
+-	return TRUE;
+-}
+-
+ /**
+  * nm_system_add_bonding_master:
+  * @iface: the interface name for the new bond master
+diff --git a/src/nm-system.h b/src/nm-system.h
+index 9c78dc9..c236630 100644
+--- a/src/nm-system.h
++++ b/src/nm-system.h
+@@ -94,8 +94,6 @@ gboolean        nm_system_device_is_up_with_iface (const char *iface);
+ gboolean		nm_system_device_set_mtu (const char *iface, guint32 mtu);
+ gboolean		nm_system_device_set_mac (const char *iface, const struct ether_addr *mac);
+ 
+-gboolean        nm_system_apply_bonding_config          (const char *iface,
+-                                                         NMSettingBond *s_bond);
+ gboolean        nm_system_add_bonding_master            (const char *iface);
+ 
+ gboolean        nm_system_bond_enslave                  (gint master_ifindex,
+diff --git a/system-settings/plugins/ifcfg-rh/reader.c b/system-settings/plugins/ifcfg-rh/reader.c
+index a647da6..7c9584c 100644
+--- a/system-settings/plugins/ifcfg-rh/reader.c
++++ b/system-settings/plugins/ifcfg-rh/reader.c
+@@ -3512,8 +3512,24 @@ handle_bond_option (NMSettingBond *s_bond,
+                     const char *key,
+                     const char *value)
+ {
+-	if (!nm_setting_bond_add_option (s_bond, key, value))
++	char *sanitized = NULL, *j;
++	const char *p = value;
++
++	/* Remove any quotes or +/- from arp_ip_target */
++	if (!g_strcmp0 (key, NM_SETTING_BOND_OPTION_ARP_IP_TARGET) && value && value[0]) {
++		if (*p == '\'' || *p == '"')
++			p++;
++		j = sanitized = g_malloc0 (strlen (p) + 1);
++		while (*p) {
++			if (*p != '+' && *p != '-' && *p != '\'' && *p != '"')
++				*j++ = *p;
++			p++;
++		}
++	}
++
++	if (!nm_setting_bond_add_option (s_bond, key, sanitized ? sanitized : value))
+ 		PLUGIN_WARN (IFCFG_PLUGIN_NAME, "    warning: invalid bonding option '%s'", key);
++	g_free (sanitized);
+ }
+ 
+ static NMSetting *
+-- 
+1.7.1
+
