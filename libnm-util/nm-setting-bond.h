@@ -105,6 +105,9 @@ gboolean     nm_setting_bond_add_option         (NMSettingBond *setting,
 gboolean     nm_setting_bond_remove_option      (NMSettingBond *setting,
                                                  const char *name);
 
+gboolean     nm_setting_bond_validate_option    (const char *name,
+                                                 const char *value);
+
 const char **nm_setting_bond_get_valid_options  (NMSettingBond *setting);
 
 const char * nm_setting_bond_get_option_default (NMSettingBond *setting,
