@@ -342,6 +342,9 @@ nm_setting_bond_get_option_by_name (NMSettingBond *setting,
  * (ie [a-zA-Z0-9]).  Adding a new name replaces any existing name/value pair
  * that may already exist.
  *
+ * The order of how to set several options is relevant because there are options
+ * that conflict with each other.
+ *
  * Returns: %TRUE if the option was valid and was added to the internal option
  * list, %FALSE if it was not.
  **/
@@ -352,8 +355,9 @@ gboolean nm_setting_bond_add_option (NMSettingBond *setting,
 	NMSettingBondPrivate *priv;
 
 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), FALSE);
-	g_return_val_if_fail (nm_setting_bond_validate_option (name, value), FALSE);
-	g_return_val_if_fail (value != NULL, FALSE);
+
+	if (!value || !nm_setting_bond_validate_option (name, value))
+		return FALSE;
 
 	priv = NM_SETTING_BOND_GET_PRIVATE (setting);
 
