@@ -330,7 +330,9 @@ nm_setting_bond_get_option_by_name (NMSettingBond *setting,
                                     const char *name)
 {
 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), NULL);
-	g_return_val_if_fail (nm_setting_bond_validate_option (name, NULL), NULL);
+
+	if (!nm_setting_bond_validate_option (name, NULL))
+		return NULL;
 
 	return g_hash_table_lookup (NM_SETTING_BOND_GET_PRIVATE (setting)->options, name);
 }
@@ -352,9 +354,10 @@ nm_setting_bond_get_option_by_name (NMSettingBond *setting,
  * Returns: %TRUE if the option was valid and was added to the internal option
  * list, %FALSE if it was not.
  **/
-gboolean nm_setting_bond_add_option (NMSettingBond *setting,
-                                     const char *name,
-                                     const char *value)
+gboolean
+nm_setting_bond_add_option (NMSettingBond *setting,
+                            const char *name,
+                            const char *value)
 {
 	NMSettingBondPrivate *priv;
 
@@ -401,7 +404,9 @@ nm_setting_bond_remove_option (NMSettingBond *setting,
 	gboolean found;
 
 	g_return_val_if_fail (NM_IS_SETTING_BOND (setting), FALSE);
-	g_return_val_if_fail (nm_setting_bond_validate_option (name, NULL), FALSE);
+
+	if (!nm_setting_bond_validate_option (name, NULL))
+		return FALSE;
 
 	found = g_hash_table_remove (NM_SETTING_BOND_GET_PRIVATE (setting)->options, name);
 	if (found)
