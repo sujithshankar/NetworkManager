@@ -273,12 +273,16 @@ validate_ip (const char *name, const char *value)
 
 /**
  * nm_setting_bond_validate_option:
- * @name: the option name that should be validated.
- * @value: the value for the option. If NULL, it validates only
- * that the name exists.
+ * @name: the name of the option to validate
+ * @value: the value of the option to validate
+ *
+ * Checks whether @name is a valid bond option and @value is a valid value for
+ * the @name. If @value is NULL, the function only validates the option name.
  *
  * Returns: TRUE, if the @value is valid for the given name.
  * If the @name is not a valid option, FALSE will be returned.
+ *
+ * Since: 0.9.10
  **/
 gboolean
 nm_setting_bond_validate_option (const char *name,
@@ -286,8 +290,8 @@ nm_setting_bond_validate_option (const char *name,
 {
 	guint i;
 
-	g_return_val_if_fail (name != NULL, FALSE);
-	g_return_val_if_fail (name[0] != '\0', FALSE);
+	if (!name || !name[0])
+		return FALSE;
 
 	for (i = 0; i < G_N_ELEMENTS (defaults); i++) {
 		if (g_strcmp0 (defaults[i].opt, name) == 0) {
