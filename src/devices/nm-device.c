@@ -396,6 +396,21 @@ nm_device_init (NMDevice *self)
 	priv->available_connections = g_hash_table_new_full (g_direct_hash, g_direct_equal, g_object_unref, NULL);
 }
 
+#ifndef G_DISABLE_CHECKS
+/* The ifname is used to construct pathnames to /proc or /sys, so check that
+ * it is not empty, does not contain '/' and is not "." or "..".
+ **/
+static gboolean
+_iface_valid_name (const char *iface)
+{
+	/* We don't use nm_utils_iface_valid_name() here, because we accept whitespace and names longer
+	 * then 15 chars. For some device types, iface is not the kernel interface name, so we are more
+	 * relaxed. For example iface might be bdaddr from a bluez device.
+	 **/
+	return iface && iface[0] && !strchr (iface, '/') && strcmp (iface, ".") && strcmp (iface, "..");
+}
+#endif
+
 static void
 update_ip6_property_paths (NMDevice *self)
 {
@@ -725,6 +740,7 @@ nm_device_set_ip_iface (NMDevice *self, const char *iface)
 	char *old_ip_iface;
 
 	g_return_if_fail (NM_IS_DEVICE (self));
+	g_return_if_fail (!iface || _iface_valid_name (iface));
 
 	priv = NM_DEVICE_GET_PRIVATE (self);
 	old_ip_iface = priv->ip_iface;
@@ -5357,11 +5373,15 @@ set_property (GObject *object, guint prop_id,
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (object);
 	NMPlatformLink *platform_device;
 	const char *hw_addr;
- 
+
 	switch (prop_id) {
 	case PROP_PLATFORM_DEVICE:
+		/* construct only */
 		platform_device = g_value_get_pointer (value);
 		if (platform_device) {
+			g_return_if_fail (_iface_valid_name (platform_device->name));
+			g_return_if_fail (!priv->iface || !strcmp (priv->iface, platform_device->name));
+
 			g_free (priv->udi);
 			priv->udi = g_strdup (platform_device->udi);
 			g_free (priv->iface);
@@ -5378,16 +5398,25 @@ set_property (GObject *object, guint prop_id,
 		}
 		break;
 	case PROP_IFACE:
-		if (g_value_get_string (value)) {
+		/* construct only */
+		{
+			const char *iface = g_value_get_string (value);
+
+			if (!iface)
+				return;
+
+			g_return_if_fail (_iface_valid_name (iface));
+			g_return_if_fail (!priv->iface || !strcmp (priv->iface, iface));
+
 			g_free (priv->iface);
 			priv->ifindex = 0;
-			priv->iface = g_value_dup_string (value);
+			priv->iface = g_strdup (iface);
 
 			/* Only look up the ifindex if it appears to be an actual kernel
 			 * interface name.  eg Bluetooth devices won't have one until we know
 			 * the IP interface.
 			 */
-			if (priv->iface && !strchr (priv->iface, ':')) {
+			if (!strchr (priv->iface, ':')) {
 				priv->ifindex = nm_platform_link_get_ifindex (priv->iface);
 				if (priv->ifindex <= 0)
 					nm_log_warn (LOGD_HW, "(%s): failed to look up interface index", priv->iface);
