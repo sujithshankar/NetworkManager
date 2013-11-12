@@ -281,6 +281,34 @@ nm_connection_get_setting_by_name (NMConnection *connection, const char *name)
 	return type ? nm_connection_get_setting (connection, type) : NULL;
 }
 
+/**
+ * nm_connection_get_settings:
+ * @connection: a #NMConnection
+ *
+ * Returns a list of all #NMSetting objects the connection contains.
+ *
+ * Returns: (transfer container) (element-type NetworkManager.Setting): a list
+ * of #NMSetting objects, or NULL if no settings have been added to the
+ * connection
+ *
+ * Since: 0.9.10
+ **/
+GSList *
+nm_connection_get_settings (NMConnection *connection)
+{
+	GSList *settings = NULL;
+	GHashTableIter iter;
+	NMSetting *setting;
+
+	g_return_val_if_fail (connection != NULL, NULL);
+	g_return_val_if_fail (NM_IS_CONNECTION (connection), NULL);
+
+	g_hash_table_iter_init (&iter, NM_CONNECTION_GET_PRIVATE (connection)->settings);
+	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &setting))
+		settings = g_slist_prepend (settings, setting);
+	return settings;
+}
+
 /* not exposed until we actually need it */
 static NMSetting *
 _get_type_setting (NMConnection *connection)

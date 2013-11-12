@@ -140,6 +140,8 @@ NMSetting    *nm_connection_get_setting   (NMConnection *connection,
 NMSetting    *nm_connection_get_setting_by_name (NMConnection *connection,
                                                  const char   *name);
 
+GSList       *nm_connection_get_settings (NMConnection *connection);
+
 gboolean      nm_connection_replace_settings (NMConnection *connection,
                                               GHashTable *new_settings,
                                               GError **error);
