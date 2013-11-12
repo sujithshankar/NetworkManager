@@ -6296,8 +6296,12 @@ editor_menu_main (NmCli *nmc, NMConnection *connection, const char *connection_t
 					/* Show property description */
 					print_property_description (menu_ctx.curr_setting, prop_name);
 				} else {
-					printf (_("Error: no setting selected; valid are [%s]\n"), valid_settings_str);
-					printf (_("use 'goto <setting>' first, or 'describe <setting>.<property>'\n"));
+					GSList *iter, *settings = nm_connection_get_settings (connection);
+
+					for (iter = settings; iter; iter = iter->next)
+						print_setting_description (iter->data);
+
+					g_slist_free (settings);
 				}
 			} else {
 				NMSetting *ss = NULL;
