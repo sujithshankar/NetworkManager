@@ -106,7 +106,7 @@ properties_changed (gpointer data)
 		GString *buf = g_string_new (NULL);
 
 		g_hash_table_foreach (info->hash, add_to_string, buf);
-		nm_log_dbg (LOGD_DBUS_PROPS, "%s -> %s", G_OBJECT_TYPE_NAME (object), buf->str);
+		LOG (dbg, DBUS_PROPS, object, "%s -> %s", G_OBJECT_TYPE_NAME (object), buf->str);
 		g_string_free (buf, TRUE);
 	}
 
@@ -146,8 +146,7 @@ notify (GObject *object, GParamSpec *pspec)
 			break;
 	}
 	if (!dbus_property_name) {
-		nm_log_dbg (LOGD_DBUS_PROPS, "ignoring notification for prop %s on type %s",
-		            pspec->name, G_OBJECT_TYPE_NAME (object));
+		/* Only log changes of one of the exported_properties */
 		return;
 	}
 
