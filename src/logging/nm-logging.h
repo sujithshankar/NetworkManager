@@ -100,6 +100,15 @@ GQuark nm_logging_error_quark    (void);
 #define nm_log(domain, level, ...) \
 	_nm_log (G_STRLOC, G_STRFUNC, domain, level, ## __VA_ARGS__ )
 
+#define LOg(level, domain, self, fmt) \
+    G_STMT_START { \
+        nm_log_##level (LOGD_##domain, "[%p] " fmt, self); \
+    } G_STMT_END
+#define LOG(level, domain, self, fmt, ...) \
+    G_STMT_START { \
+        nm_log_##level (LOGD_##domain, "[%p] " fmt, self, __VA_ARGS__); \
+    } G_STMT_END
+
 void _nm_log (const char *loc,
               const char *func,
               guint64 domain,
