@@ -331,14 +331,6 @@ auth_call_new (NMAuthChain *chain, const char *permission)
 }
 
 static void
-auth_call_cancel (AuthCall *call)
-{
-	call->disposed = TRUE;
-	if (call->cancellable)
-		g_cancellable_cancel (call->cancellable);
-}
-
-static void
 auth_call_free (AuthCall *call)
 {
 	g_return_if_fail (call != NULL);
@@ -356,12 +348,29 @@ static gboolean
 auth_call_complete (AuthCall *call)
 {
 	g_return_val_if_fail (call != NULL, FALSE);
+	g_assert ((call->call_idle_id != 0) ^ (call->cancellable != NULL));
 
+	/* If called from g_idle_add, we don't have to g_source_remove. If called from
+	 * pk_call_cb, we were never scheduled with g_idle_add. So, set call_idle_id
+	 * to zero. */
 	call->call_idle_id = 0;
 	nm_auth_chain_remove_call (call->chain, call);
 	nm_auth_chain_check_done (call->chain);
 	auth_call_free (call);
 	return FALSE;
+}
+
+static void
+auth_call_cancel (AuthCall *call)
+{
+	g_assert (!call->disposed);
+	g_assert ((call->call_idle_id != 0) ^ (call->cancellable != NULL));
+
+	if (call->cancellable) {
+		call->disposed = TRUE;
+		g_cancellable_cancel (call->cancellable);
+	} else
+		auth_call_free (call);
 }
 
 #if WITH_POLKIT
@@ -372,6 +381,9 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 	NMAuthChain *chain = call->chain;
 	PolkitAuthorizationResult *pk_result;
 	GError *error = NULL;
+
+	g_assert (call->call_idle_id == 0);
+	g_assert (call->cancellable != NULL);
 
 	/* If the call is already disposed do nothing */
 	if (call->disposed) {
