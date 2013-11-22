@@ -371,7 +371,6 @@ static void
 pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 {
 	AuthCall *call = user_data;
-	NMAuthChain *chain = call->chain;
 	PolkitAuthorizationResult *pk_result;
 	GError *error = NULL;
 
@@ -387,8 +386,8 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 	g_object_unref (call->cancellable);
 
 	if (error) {
-		if (!chain->error)
-			chain->error = g_error_copy (error);
+		if (!call->chain->error)
+			call->chain->error = g_error_copy (error);
 
 		nm_log_warn (LOGD_CORE, "error requesting auth for %s: (%d) %s",
 		             call->permission,
@@ -407,7 +406,7 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 		} else
 			call_result = NM_AUTH_CALL_RESULT_NO;
 
-		nm_auth_chain_set_data (chain, call->permission, GUINT_TO_POINTER (call_result), NULL);
+		nm_auth_chain_set_data (call->chain, call->permission, GUINT_TO_POINTER (call_result), NULL);
 	}
 
 	if (pk_result)
