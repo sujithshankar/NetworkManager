@@ -343,12 +343,8 @@ auth_call_free (AuthCall *call)
 {
 	g_return_if_fail (call != NULL);
 
-	call->disposed = TRUE;
 	g_free (call->permission);
-	call->permission = NULL;
-	call->chain = NULL;
 	g_object_unref (call->cancellable);
-	call->cancellable = NULL;
 	if (call->call_idle_id)
 		g_source_remove (call->call_idle_id);
 	memset (call, 0, sizeof (*call));
