@@ -332,10 +332,7 @@ auth_call_new (NMAuthChain *chain, const char *permission)
 static void
 auth_call_free (AuthCall *call)
 {
-	g_return_if_fail (call != NULL);
-
 	g_free (call->permission);
-	memset (call, 0, sizeof (*call));
 	g_free (call);
 }
 
