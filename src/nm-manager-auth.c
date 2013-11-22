@@ -57,7 +57,7 @@ typedef struct {
 	NMAuthChain *chain;
 	GCancellable *cancellable;
 	char *permission;
-	guint idle_id;
+	guint call_idle_id;
 	gboolean disposed;
 } AuthCall;
 
@@ -349,8 +349,8 @@ auth_call_free (AuthCall *call)
 	call->chain = NULL;
 	g_object_unref (call->cancellable);
 	call->cancellable = NULL;
-	if (call->idle_id)
-		g_source_remove (call->idle_id);
+	if (call->call_idle_id)
+		g_source_remove (call->call_idle_id);
 	memset (call, 0, sizeof (*call));
 	g_free (call);
 }
@@ -361,7 +361,7 @@ auth_call_complete (AuthCall *call)
 {
 	g_return_val_if_fail (call != NULL, FALSE);
 
-	call->idle_id = 0;
+	call->call_idle_id = 0;
 	nm_auth_chain_remove_call (call->chain, call);
 	nm_auth_chain_check_done (call->chain);
 	auth_call_free (call);
@@ -419,7 +419,7 @@ auth_call_schedule_complete_with_error (AuthCall *call, const char *msg)
 {
 	if (!call->chain->error)
 		call->chain->error = g_error_new_literal (DBUS_GERROR, DBUS_GERROR_FAILED, msg);
-	call->idle_id = g_idle_add ((GSourceFunc) auth_call_complete, call);
+	call->call_idle_id = g_idle_add ((GSourceFunc) auth_call_complete, call);
 }
 
 static gboolean
@@ -489,7 +489,7 @@ nm_auth_chain_add_call (NMAuthChain *self,
 	/* Root user or non-polkit always gets the permission */
 	call = auth_call_new (self, permission);
 	nm_auth_chain_set_data (self, permission, GUINT_TO_POINTER (NM_AUTH_CALL_RESULT_YES), NULL);
-	call->idle_id = g_idle_add ((GSourceFunc) auth_call_complete, call);
+	call->call_idle_id = g_idle_add ((GSourceFunc) auth_call_complete, call);
 	return TRUE;
 }
 
