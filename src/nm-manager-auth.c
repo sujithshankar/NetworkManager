@@ -335,7 +335,6 @@ auth_call_free (AuthCall *call)
 	g_return_if_fail (call != NULL);
 
 	g_free (call->permission);
-	g_clear_object (&call->cancellable);
 	memset (call, 0, sizeof (*call));
 	g_free (call);
 }
@@ -351,9 +350,14 @@ auth_call_complete (AuthCall *call)
 }
 
 static void
-auth_call_cancel (AuthCall *call)
+auth_call_cancel (gpointer user_data)
 {
+	AuthCall *call = user_data;
+
 	if (call->cancellable) {
+		/* we don't free call immediatly. Instead we cancel the async operation
+		 * and set cancellable to NULL. pk_call_cb() will check for this and
+		 * do the final cleanup. */
 		g_cancellable_cancel (call->cancellable);
 		g_clear_object (&call->cancellable);
 	} else {
@@ -380,6 +384,7 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 		auth_call_free (call);
 		return;
 	}
+	g_object_unref (call->cancellable);
 
 	if (error) {
 		if (!chain->error)
@@ -494,8 +499,6 @@ nm_auth_chain_add_call (NMAuthChain *self,
 void
 nm_auth_chain_unref (NMAuthChain *self)
 {
-	GSList *iter;
-
 	g_return_if_fail (self != NULL);
 
 	self->refcount--;
@@ -512,9 +515,7 @@ nm_auth_chain_unref (NMAuthChain *self)
 	g_free (self->owner);
 	g_object_unref (self->subject);
 
-	for (iter = self->calls; iter; iter = g_slist_next (iter))
-		auth_call_cancel ((AuthCall *) iter->data);
-	g_slist_free (self->calls);
+	g_slist_free_full (self->calls, auth_call_cancel);
 
 	g_clear_error (&self->error);
 	g_hash_table_destroy (self->data);
