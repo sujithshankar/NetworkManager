@@ -58,7 +58,6 @@ typedef struct {
 	GCancellable *cancellable;
 	char *permission;
 	guint call_idle_id;
-	gboolean disposed;
 } AuthCall;
 
 typedef struct {
@@ -363,12 +362,11 @@ auth_call_complete (AuthCall *call)
 static void
 auth_call_cancel (AuthCall *call)
 {
-	g_assert (!call->disposed);
 	g_assert ((call->call_idle_id != 0) ^ (call->cancellable != NULL));
 
 	if (call->cancellable) {
-		call->disposed = TRUE;
 		g_cancellable_cancel (call->cancellable);
+		g_clear_object (&call->cancellable);
 	} else
 		auth_call_free (call);
 }
@@ -383,10 +381,9 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 	GError *error = NULL;
 
 	g_assert (call->call_idle_id == 0);
-	g_assert (call->cancellable != NULL);
 
-	/* If the call is already disposed do nothing */
-	if (call->disposed) {
+	/* If the call is already canceled do nothing */
+	if (!call->cancellable) {
 		auth_call_free (call);
 		return;
 	}
