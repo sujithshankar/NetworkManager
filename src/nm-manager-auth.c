@@ -333,6 +333,7 @@ static void
 auth_call_free (AuthCall *call)
 {
 	g_free (call->permission);
+	g_clear_object (&call->cancellable);
 	g_free (call);
 }
 
@@ -380,16 +381,13 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 		auth_call_free (call);
 		return;
 	}
-	g_object_unref (call->cancellable);
 
 	if (error) {
 		if (!call->chain->error)
 			call->chain->error = g_error_copy (error);
 
 		nm_log_warn (LOGD_CORE, "error requesting auth for %s: (%d) %s",
-		             call->permission,
-		             error ? error->code : -1,
-		             error && error->message ? error->message : "(unknown)");
+		             call->permission, error->code, error->message);
 		g_clear_error (&error);
 	} else {
 		guint call_result = NM_AUTH_CALL_RESULT_UNKNOWN;
@@ -404,10 +402,8 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 			call_result = NM_AUTH_CALL_RESULT_NO;
 
 		nm_auth_chain_set_data (call->chain, call->permission, GUINT_TO_POINTER (call_result), NULL);
-	}
-
-	if (pk_result)
 		g_object_unref (pk_result);
+	}
 
 	auth_call_complete (call);
 }
