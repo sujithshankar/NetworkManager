@@ -382,13 +382,16 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 
 	g_assert (call->call_idle_id == 0);
 
+	pk_result = polkit_authority_check_authorization_finish ((PolkitAuthority *) object, result, &error);
+
 	/* If the call is already canceled do nothing */
 	if (!call->cancellable) {
+		g_clear_error (&error);
+		g_clear_object (&pk_result);
 		auth_call_free (call);
 		return;
 	}
 
-	pk_result = polkit_authority_check_authorization_finish (chain->authority, result, &error);
 	if (error) {
 		if (!chain->error)
 			chain->error = g_error_copy (error);
@@ -397,6 +400,7 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 		             call->permission,
 		             error ? error->code : -1,
 		             error && error->message ? error->message : "(unknown)");
+		g_clear_error (&error);
 	} else {
 		guint call_result = NM_AUTH_CALL_RESULT_UNKNOWN;
 
@@ -412,7 +416,6 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 		nm_auth_chain_set_data (chain, call->permission, GUINT_TO_POINTER (call_result), NULL);
 	}
 
-	g_clear_error (&error);
 	if (pk_result)
 		g_object_unref (pk_result);
 
