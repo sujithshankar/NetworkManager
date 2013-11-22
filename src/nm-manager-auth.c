@@ -336,8 +336,6 @@ auth_call_free (AuthCall *call)
 
 	g_free (call->permission);
 	g_clear_object (&call->cancellable);
-	if (call->call_idle_id)
-		g_source_remove (call->call_idle_id);
 	memset (call, 0, sizeof (*call));
 	g_free (call);
 }
@@ -346,13 +344,6 @@ auth_call_free (AuthCall *call)
 static gboolean
 auth_call_complete (AuthCall *call)
 {
-	g_return_val_if_fail (call != NULL, FALSE);
-	g_assert ((call->call_idle_id != 0) ^ (call->cancellable != NULL));
-
-	/* If called from g_idle_add, we don't have to g_source_remove. If called from
-	 * pk_call_cb, we were never scheduled with g_idle_add. So, set call_idle_id
-	 * to zero. */
-	call->call_idle_id = 0;
 	nm_auth_chain_remove_call (call->chain, call);
 	nm_auth_chain_check_done (call->chain);
 	auth_call_free (call);
@@ -362,13 +353,13 @@ auth_call_complete (AuthCall *call)
 static void
 auth_call_cancel (AuthCall *call)
 {
-	g_assert ((call->call_idle_id != 0) ^ (call->cancellable != NULL));
-
 	if (call->cancellable) {
 		g_cancellable_cancel (call->cancellable);
 		g_clear_object (&call->cancellable);
-	} else
+	} else {
+		g_source_remove (call->call_idle_id);
 		auth_call_free (call);
+	}
 }
 
 #if WITH_POLKIT
@@ -379,8 +370,6 @@ pk_call_cb (GObject *object, GAsyncResult *result, gpointer user_data)
 	NMAuthChain *chain = call->chain;
 	PolkitAuthorizationResult *pk_result;
 	GError *error = NULL;
-
-	g_assert (call->call_idle_id == 0);
 
 	pk_result = polkit_authority_check_authorization_finish ((PolkitAuthority *) object, result, &error);
 
