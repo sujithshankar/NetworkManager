@@ -326,7 +326,6 @@ auth_call_new (NMAuthChain *chain, const char *permission)
 	call = g_malloc0 (sizeof (AuthCall));
 	call->chain = chain;
 	call->permission = g_strdup (permission);
-	call->cancellable = g_cancellable_new ();
 	chain->calls = g_slist_append (chain->calls, call);
 	return call;
 }
@@ -335,7 +334,8 @@ static void
 auth_call_cancel (AuthCall *call)
 {
 	call->disposed = TRUE;
-	g_cancellable_cancel (call->cancellable);
+	if (call->cancellable)
+		g_cancellable_cancel (call->cancellable);
 }
 
 static void
@@ -344,7 +344,7 @@ auth_call_free (AuthCall *call)
 	g_return_if_fail (call != NULL);
 
 	g_free (call->permission);
-	g_object_unref (call->cancellable);
+	g_clear_object (&call->cancellable);
 	if (call->call_idle_id)
 		g_source_remove (call->call_idle_id);
 	memset (call, 0, sizeof (*call));
@@ -454,6 +454,7 @@ _add_call_polkit (NMAuthChain *self,
 	if (allow_interaction)
 		flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
 
+	call->cancellable = g_cancellable_new ();
 	polkit_authority_check_authorization (self->authority,
 	                                      subject,
 	                                      permission,
