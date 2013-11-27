@@ -75,6 +75,7 @@ typedef struct {
 	guint32 flags;
 	GSList *ingress_priority_map;
 	GSList *egress_priority_map;
+	char *virtual_iface_name; /* parent.id when iface_name is NULL */
 } NMSettingVlanPrivate;
 
 enum {
@@ -543,7 +544,20 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static const char *
 get_virtual_iface_name (NMSetting *setting)
 {
-	return nm_setting_vlan_get_interface_name (NM_SETTING_VLAN (setting));
+	NMSettingVlanPrivate *priv = NM_SETTING_VLAN_GET_PRIVATE (setting);
+	char *virtual_ifname;
+
+	if (priv->iface_name)
+		virtual_ifname = priv->iface_name;
+	else {
+		if (!priv->parent)
+			return NULL;
+		if (!priv->virtual_iface_name)
+			priv->virtual_iface_name = g_strdup_printf ("%s.%d", priv->parent, priv->id);
+		virtual_ifname = priv->virtual_iface_name;
+	}
+
+	return virtual_ifname;
 }
 
 static GSList *
@@ -576,9 +590,11 @@ set_property (GObject *object, guint prop_id,
 	case PROP_PARENT:
 		g_free (priv->parent);
 		priv->parent = g_value_dup_string (value);
+		g_clear_pointer (&priv->virtual_iface_name, NULL);
 		break;
 	case PROP_ID:
 		priv->id = g_value_get_uint (value);
+		g_clear_pointer (&priv->virtual_iface_name, NULL);
 		break;
 	case PROP_FLAGS:
 		priv->flags = g_value_get_uint (value);
@@ -652,6 +668,7 @@ finalize (GObject *object)
 
 	g_free (priv->iface_name);
 	g_free (priv->parent);
+	g_free (priv->virtual_iface_name);
 	g_slist_free_full (priv->ingress_priority_map, g_free);
 	g_slist_free_full (priv->egress_priority_map, g_free);
 
