@@ -88,7 +88,9 @@ enum {
 NMSetting *
 nm_setting_wimax_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIMAX, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIMAX,
+	                                   NM_SETTING_NAME, NM_SETTING_WIMAX_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -163,7 +165,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_wimax_init (NMSettingWimax *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_WIMAX_SETTING_NAME, NULL);
 }
 
 static void

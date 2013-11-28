@@ -18,7 +18,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * (C) Copyright 2007 - 2008 Novell, Inc.
+ * (C) Copyright 2007 - 2013 Novell, Inc.
  */
 
 /* This file is just a template - it's not built nor included in the tarball.
@@ -40,7 +40,9 @@ enum {
 NMSetting *
 nm_setting_template_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_TEMPLATE, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_TEMPLATE,
+	                                   NM_SETTING_NAME, NM_SETTING_TEMPLATE_SETTING_NAME,
+	                                   NULL);
 }
 
 static gboolean
@@ -53,7 +55,6 @@ verify (NMSetting *setting, GSList *all_settings)
 static void
 nm_setting_template_init (NMSettingTemplate *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_TEMPLATE_SETTING_NAME, NULL);
 }
 
 static void

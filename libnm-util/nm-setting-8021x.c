@@ -175,7 +175,9 @@ enum {
 NMSetting *
 nm_setting_802_1x_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_802_1X, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_802_1X,
+	                                   NM_SETTING_NAME, NM_SETTING_802_1X_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -2639,7 +2641,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_802_1x_init (NMSetting8021x *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_802_1X_SETTING_NAME, NULL);
 }
 
 static void

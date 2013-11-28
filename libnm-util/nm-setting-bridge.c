@@ -108,7 +108,9 @@ enum {
 NMSetting *
 nm_setting_bridge_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BRIDGE, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BRIDGE,
+	                                   NM_SETTING_NAME, NM_SETTING_BRIDGE_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -322,7 +324,6 @@ get_virtual_iface_name (NMSetting *setting)
 static void
 nm_setting_bridge_init (NMSettingBridge *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_BRIDGE_SETTING_NAME, NULL);
 }
 
 static void

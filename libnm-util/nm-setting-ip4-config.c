@@ -116,7 +116,9 @@ enum {
 NMSetting *
 nm_setting_ip4_config_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_IP4_CONFIG, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_IP4_CONFIG,
+	                                   NM_SETTING_NAME, NM_SETTING_IP4_CONFIG_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -837,8 +839,6 @@ static void
 nm_setting_ip4_config_init (NMSettingIP4Config *setting)
 {
 	NMSettingIP4ConfigPrivate *priv = NM_SETTING_IP4_CONFIG_GET_PRIVATE (setting);
-
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_IP4_CONFIG_SETTING_NAME, NULL);
 
 	priv->dns = g_array_sized_new (FALSE, TRUE, sizeof (guint32), 3);
 }

@@ -134,7 +134,9 @@ static const BondDefault defaults[] = {
 NMSetting *
 nm_setting_bond_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BOND, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BOND,
+	                                   NM_SETTING_NAME, NM_SETTING_BOND_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -703,9 +705,6 @@ static void
 nm_setting_bond_init (NMSettingBond *setting)
 {
 	NMSettingBondPrivate *priv = NM_SETTING_BOND_GET_PRIVATE (setting);
-
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_BOND_SETTING_NAME,
-	              NULL);
 
 	priv->options = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 

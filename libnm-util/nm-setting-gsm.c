@@ -111,7 +111,9 @@ enum {
 NMSetting *
 nm_setting_gsm_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_GSM, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_GSM,
+	                                   NM_SETTING_NAME, NM_SETTING_GSM_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -405,7 +407,6 @@ need_secrets (NMSetting *setting)
 static void
 nm_setting_gsm_init (NMSettingGsm *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_GSM_SETTING_NAME, NULL);
 }
 
 static void

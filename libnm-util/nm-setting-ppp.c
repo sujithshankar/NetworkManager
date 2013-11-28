@@ -121,7 +121,9 @@ enum {
 NMSetting *
 nm_setting_ppp_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_PPP, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_PPP,
+	                                   NM_SETTING_NAME, NM_SETTING_PPP_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -413,7 +415,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_ppp_init (NMSettingPPP *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_PPP_SETTING_NAME, NULL);
 }
 
 static void

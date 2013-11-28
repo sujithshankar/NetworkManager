@@ -84,7 +84,9 @@ enum {
 NMSetting *
 nm_setting_team_port_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_TEAM_PORT, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_TEAM_PORT,
+	                                   NM_SETTING_NAME, NM_SETTING_TEAM_PORT_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -110,7 +112,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_team_port_init (NMSettingTeamPort *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_TEAM_PORT_SETTING_NAME, NULL);
 }
 
 static void

@@ -145,7 +145,9 @@ enum {
 NMSetting *
 nm_setting_wireless_security_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIRELESS_SECURITY, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIRELESS_SECURITY,
+	                                   NM_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -1055,7 +1057,6 @@ set_secret_flags (NMSetting *setting,
 static void
 nm_setting_wireless_security_init (NMSettingWirelessSecurity *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_SETTING_NAME, NULL);
 }
 
 static void

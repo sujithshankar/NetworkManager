@@ -189,13 +189,14 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 NMSetting *
 nm_setting_bridge_port_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BRIDGE_PORT, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BRIDGE_PORT,
+	                                   NM_SETTING_NAME, NM_SETTING_BRIDGE_PORT_SETTING_NAME,
+	                                   NULL);
 }
 
 static void
 nm_setting_bridge_port_init (NMSettingBridgePort *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_BRIDGE_PORT_SETTING_NAME, NULL);
 }
 
 static void

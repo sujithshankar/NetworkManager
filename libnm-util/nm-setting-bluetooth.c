@@ -95,7 +95,9 @@ enum {
  **/
 NMSetting *nm_setting_bluetooth_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BLUETOOTH, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_BLUETOOTH,
+	                                   NM_SETTING_NAME, NM_SETTING_BLUETOOTH_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -201,7 +203,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_bluetooth_init (NMSettingBluetooth *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_BLUETOOTH_SETTING_NAME, NULL);
 }
 
 static void

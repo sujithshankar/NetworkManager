@@ -95,7 +95,9 @@ enum {
 NMSetting *
 nm_setting_infiniband_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_INFINIBAND, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_INFINIBAND,
+	                                   NM_SETTING_NAME, NM_SETTING_INFINIBAND_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -255,7 +257,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_infiniband_init (NMSettingInfiniband *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_INFINIBAND_SETTING_NAME, NULL);
 }
 
 static void

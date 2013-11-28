@@ -19,7 +19,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * (C) Copyright 2007 - 2011 Red Hat, Inc.
+ * (C) Copyright 2007 - 2013 Red Hat, Inc.
  * (C) Copyright 2007 - 2008 Novell, Inc.
  */
 
@@ -97,7 +97,9 @@ enum {
 NMSetting *
 nm_setting_serial_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_SERIAL, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_SERIAL,
+	                                   NM_SETTING_NAME, NM_SETTING_SERIAL_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -179,7 +181,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_serial_init (NMSettingSerial *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_SERIAL_SETTING_NAME, NULL);
 }
 
 static void

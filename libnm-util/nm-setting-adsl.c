@@ -99,7 +99,9 @@ enum {
 NMSetting *
 nm_setting_adsl_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_ADSL, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_ADSL,
+	                                   NM_SETTING_NAME, NM_SETTING_ADSL_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -276,7 +278,6 @@ need_secrets (NMSetting *setting)
 static void
 nm_setting_adsl_init (NMSettingAdsl *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_ADSL_SETTING_NAME, NULL);
 }
 
 static void

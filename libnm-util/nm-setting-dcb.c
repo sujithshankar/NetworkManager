@@ -136,7 +136,9 @@ enum {
 NMSetting *
 nm_setting_dcb_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_DCB, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_DCB,
+	                                   NM_SETTING_NAME, NM_SETTING_DCB_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -802,7 +804,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_dcb_init (NMSettingDcb *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_DCB_SETTING_NAME, NULL);
 }
 
 static inline void

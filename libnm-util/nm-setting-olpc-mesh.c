@@ -48,8 +48,6 @@ nm_setting_olpc_mesh_error_quark (void)
 	return quark;
 }
 
-static void nm_setting_olpc_mesh_init (NMSettingOlpcMesh *setting);
-
 G_DEFINE_TYPE_WITH_CODE (NMSettingOlpcMesh, nm_setting_olpc_mesh, NM_TYPE_SETTING,
                          _nm_register_setting (NM_SETTING_OLPC_MESH_SETTING_NAME,
                                                g_define_type_id,
@@ -83,13 +81,14 @@ enum {
  **/
 NMSetting *nm_setting_olpc_mesh_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_OLPC_MESH, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_OLPC_MESH,
+	                                   NM_SETTING_NAME, NM_SETTING_OLPC_MESH_SETTING_NAME,
+	                                   NULL);
 }
 
 static void
 nm_setting_olpc_mesh_init (NMSettingOlpcMesh *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_OLPC_MESH_SETTING_NAME, NULL);
 }
 
 const GByteArray *

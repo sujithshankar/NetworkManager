@@ -106,7 +106,9 @@ typedef struct {
 NMSetting *
 nm_setting_vlan_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_VLAN, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_VLAN,
+	                                   NM_SETTING_NAME, NM_SETTING_VLAN_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -447,7 +449,6 @@ nm_setting_vlan_clear_priorities (NMSettingVlan *setting, NMVlanPriorityMap map)
 static void
 nm_setting_vlan_init (NMSettingVlan *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_VLAN_SETTING_NAME, NULL);
 }
 
 static gboolean

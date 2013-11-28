@@ -317,7 +317,9 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
 NMSetting *
 nm_setting_wireless_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIRELESS, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_WIRELESS,
+	                                   NM_SETTING_NAME, NM_SETTING_WIRELESS_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -811,7 +813,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 static void
 nm_setting_wireless_init (NMSettingWireless *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_WIRELESS_SETTING_NAME, NULL);
 }
 
 static void

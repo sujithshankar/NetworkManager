@@ -85,13 +85,14 @@ typedef struct {
 NMSetting *
 nm_setting_generic_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_GENERIC, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_GENERIC,
+	                                   NM_SETTING_NAME, NM_SETTING_GENERIC_SETTING_NAME,
+	                                   NULL);
 }
 
 static void
 nm_setting_generic_init (NMSettingGeneric *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_GENERIC_SETTING_NAME, NULL);
 }
 
 static void

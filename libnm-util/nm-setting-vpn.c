@@ -123,7 +123,9 @@ enum {
 NMSetting *
 nm_setting_vpn_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_VPN, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_VPN,
+	                                   NM_SETTING_NAME, NM_SETTING_VPN_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -694,7 +696,6 @@ nm_setting_vpn_init (NMSettingVPN *setting)
 {
 	NMSettingVPNPrivate *priv = NM_SETTING_VPN_GET_PRIVATE (setting);
 
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_VPN_SETTING_NAME, NULL);
 	priv->data = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 	priv->secrets = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, destroy_one_secret);
 }

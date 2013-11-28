@@ -206,7 +206,9 @@ permission_free (Permission *p)
  **/
 NMSetting *nm_setting_connection_new (void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_CONNECTION, NULL);
+	return (NMSetting *) g_object_new (NM_TYPE_SETTING_CONNECTION,
+	                                   NM_SETTING_NAME, NM_SETTING_CONNECTION_SETTING_NAME,
+	                                   NULL);
 }
 
 /**
@@ -840,7 +842,6 @@ compare_property (NMSetting *setting,
 static void
 nm_setting_connection_init (NMSettingConnection *setting)
 {
-	g_object_set (setting, NM_SETTING_NAME, NM_SETTING_CONNECTION_SETTING_NAME, NULL);
 }
 
 static void
