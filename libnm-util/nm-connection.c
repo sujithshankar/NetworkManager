@@ -170,7 +170,7 @@ nm_connection_create_setting (const char *name)
 
 	type = nm_connection_lookup_setting_type (name);
 	if (type)
-		setting = (NMSetting *) g_object_new (type, NULL);
+		setting = (NMSetting *) g_object_new (type, NM_SETTING_NAME, name, NULL);
 
 	return setting;
 }

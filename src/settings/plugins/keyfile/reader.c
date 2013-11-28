@@ -1207,7 +1207,9 @@ nm_keyfile_plugin_connection_from_file (const char *filename, GError **error)
 
 			base_setting_type = nm_connection_lookup_setting_type (ctype);
 			if (base_setting_type != G_TYPE_INVALID) {
-				base_setting = (NMSetting *) g_object_new (base_setting_type, NULL);
+				base_setting = (NMSetting *) g_object_new (base_setting_type,
+				                                           NM_SETTING_NAME, ctype,
+				                                           NULL);
 				g_assert (base_setting);
 				nm_connection_add_setting (connection, base_setting);
 			}

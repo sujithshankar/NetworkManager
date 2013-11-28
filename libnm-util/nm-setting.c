@@ -386,7 +386,7 @@ duplicate_setting (NMSetting *setting,
                    GParamFlags flags,
                    gpointer user_data)
 {
-	if (flags & G_PARAM_WRITABLE)
+	if ((flags & G_PARAM_WRITABLE) && !(flags & G_PARAM_CONSTRUCT_ONLY))
 		g_object_set_property (G_OBJECT (user_data), name, value);
 }
 
@@ -406,7 +406,9 @@ nm_setting_duplicate (NMSetting *setting)
 
 	g_return_val_if_fail (NM_IS_SETTING (setting), NULL);
 
-	dup = g_object_new (G_OBJECT_TYPE (setting), NULL);
+	dup = g_object_new (G_OBJECT_TYPE (setting), 
+	                    NM_SETTING_NAME, nm_setting_get_name (setting),
+	                    NULL);
 
 	g_object_freeze_notify (dup);
 	nm_setting_enumerate_values (setting, duplicate_setting, dup);
