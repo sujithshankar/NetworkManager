@@ -36,6 +36,10 @@ devtypes = { 1: "Ethernet",
              13: "Bridge",
              14: "Generic",
              15: "Team"
+             16: "Veth"
+             17: "TUN"
+             18: "MACVLAN"
+             19: "GRE"
            }
 
 states = { 0: "Unknown",

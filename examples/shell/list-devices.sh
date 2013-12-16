@@ -48,6 +48,10 @@ devtype_to_name()
    13) echo "Bridge" ;;
    14) echo "Generic" ;;
    15) echo "Team" ;;
+   16) echo "Veth" ;;
+   17) echo "TUN" ;;
+   18) echo "MACVLAN" ;;
+   19) echo "GRE" ;;
     *) echo "Unknown" ;;
   esac
 }

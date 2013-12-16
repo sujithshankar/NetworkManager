@@ -123,7 +123,7 @@ nm_device_gre_new (NMPlatformLink *platform_device)
 	return (NMDevice *) g_object_new (NM_TYPE_DEVICE_GRE,
 	                                  NM_DEVICE_PLATFORM_DEVICE, platform_device,
 	                                  NM_DEVICE_TYPE_DESC, "Gre",
-	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_GENERIC,
+	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_GRE,
 	                                  NULL);
 }
 

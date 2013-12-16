@@ -104,7 +104,7 @@ nm_device_veth_new (NMPlatformLink *platform_device)
 	return (NMDevice *) g_object_new (NM_TYPE_DEVICE_VETH,
 	                                  NM_DEVICE_PLATFORM_DEVICE, platform_device,
 	                                  NM_DEVICE_TYPE_DESC, "Veth",
-	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_ETHERNET,
+	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_VETH,
 	                                  NULL);
 }
 
