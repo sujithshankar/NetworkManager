@@ -29,6 +29,7 @@
 #include <sys/wait.h>
 
 #include <glib/gi18n-lib.h>
+#include <gio/gio.h>
 
 #include "nm-glib-compat.h"
 #include "nmt-newt-utils.h"
@@ -391,3 +392,68 @@ nmt_newt_edit_string (const char *data)
 	return new_data;
 }	
 
+/**
+ * nmt_newt_filename_to_utf8:
+ * @path: (type filename): an absolute filesystem path
+ *
+ * Converts @path to a UTF-8 string.
+ *
+ * Returns: a UTF-8 string corresponding to @path. Note that this operation
+ *   is not reversible, and may have different results depending on whether
+ *   @path does or does not refer to an actual file.
+ */
+char *
+nmt_newt_filename_to_utf8 (const char *path)
+{
+	GString *display_name;
+	GSList *infos, *iter;
+	GFile *file, *parent;
+	GFileInfo *info;
+
+	g_return_val_if_fail (g_path_is_absolute (path), NULL);
+
+	if (g_utf8_validate (path, -1, NULL))
+		return g_strdup (path);
+
+	infos = NULL;
+	file = g_file_new_for_path (path);
+	while (file) {
+		info = g_file_query_info (file,
+		                          G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
+		                          G_FILE_QUERY_INFO_NONE,
+		                          NULL, NULL);
+		if (!info)
+			break;
+		infos = g_slist_prepend (infos, info);
+
+		parent = g_file_get_parent (file);
+		g_object_unref (file);
+		file = parent;
+	}
+	g_clear_object (&file);
+
+	if (!infos) {
+		if (!g_get_charset (NULL)) {
+			char *utf8_path;
+
+			utf8_path = g_locale_to_utf8 (path, -1, NULL, NULL, NULL);
+			if (utf8_path)
+				return utf8_path;
+		}
+
+		/* @path is neither UTF-8 nor locale encoding, and does not refer to
+		 * an actual file. Yay.
+		 */
+		return g_strdup ("???");
+	}
+
+	display_name = g_string_new (NULL);
+	for (iter = infos; iter; iter = iter->next) {
+		g_string_append (display_name, g_file_info_get_display_name (iter->data));
+		if (iter->next)
+			g_string_append_c (display_name, '/');
+	}
+	g_slist_free_full (infos, g_object_unref);
+
+	return g_string_free (display_name, FALSE);
+}

@@ -477,6 +477,7 @@ nmt_newt_form_set_property (GObject      *object,
 
 	switch (prop_id) {
 	case PROP_TITLE:
+		g_free (priv->title_lc);
 		if (g_value_get_string (value)) {
 			priv->title_lc = nmt_newt_locale_from_utf8 (g_value_get_string (value));
 		} else
@@ -632,8 +633,7 @@ nmt_newt_form_class_init (NmtNewtFormClass *form_class)
 		 g_param_spec_string ("title", "", "",
 		                      NULL,
 		                      G_PARAM_READWRITE |
-		                      G_PARAM_STATIC_STRINGS |
-		                      G_PARAM_CONSTRUCT_ONLY));
+		                      G_PARAM_STATIC_STRINGS));
 	/**
 	 * NmtNewtForm:fullscreen:
 	 *

@@ -37,6 +37,8 @@ typedef enum {
 char *nmt_newt_locale_to_utf8   (const char *str_lc);
 char *nmt_newt_locale_from_utf8 (const char *str_utf8);
 
+char *nmt_newt_filename_to_utf8 (const char *path);
+
 int   nmt_newt_text_width       (const char *str);
 
 void nmt_newt_message_dialog  (const char *message,

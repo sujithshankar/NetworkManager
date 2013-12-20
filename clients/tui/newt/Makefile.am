@@ -24,6 +24,12 @@ libnmt_newt_a_SOURCES = \
 	nmt-newt-entry.h \
 	nmt-newt-entry-numeric.c \
 	nmt-newt-entry-numeric.h \
+	nmt-newt-file-button.c \
+	nmt-newt-file-button.h \
+	nmt-newt-file-dialog.c \
+	nmt-newt-file-dialog.h \
+	nmt-newt-file-picker.c \
+	nmt-newt-file-picker.h \
 	nmt-newt-form.c \
 	nmt-newt-form.h \
 	nmt-newt-grid.c \
