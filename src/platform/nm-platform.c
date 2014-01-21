@@ -27,6 +27,7 @@
 #include <netlink/route/addr.h>
 
 #include "nm-platform.h"
+#include "NetworkManagerUtils.h"
 #include "nm-logging.h"
 #include "nm-enum-types.h"
 
