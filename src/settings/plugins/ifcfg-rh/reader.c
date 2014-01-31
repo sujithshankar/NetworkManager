@@ -3853,6 +3853,61 @@ make_wired_setting (shvarFile *ifcfg,
 		g_free (value);
 	}
 
+	value = svGetValue (ifcfg, "ETHTOOL_OPTS", FALSE);
+	if (value && strlen (value)) {
+		char **words, **iter, *flag;
+		NMSettingWiredWakeOnLan wol_flags = 0;
+		gboolean use_password = FALSE;
+		GByteArray *password;
+
+		iter = words = g_strsplit_set (value, " ", 0);
+		if (   iter[0] && g_str_equal (iter[0], "wol")
+		    && iter[1] && *iter[1]) {
+			for (flag = iter[1]; *flag; flag++) {
+				switch (*flag) {
+				case 'p': wol_flags |= NM_SETTING_WIRED_WAKE_ON_PHY; break;
+				case 'u': wol_flags |= NM_SETTING_WIRED_WAKE_ON_UNICAST; break;
+				case 'm': wol_flags |= NM_SETTING_WIRED_WAKE_ON_MULTICAST; break;
+				case 'b': wol_flags |= NM_SETTING_WIRED_WAKE_ON_BROADCAST; break;
+				case 'a': wol_flags |= NM_SETTING_WIRED_WAKE_ON_ARP; break;
+				case 'g': wol_flags |= NM_SETTING_WIRED_WAKE_ON_MAGIC; break;
+				case 's': use_password = TRUE; break;
+				case 'd': wol_flags = 0; break;
+				default:
+					PLUGIN_WARN (IFCFG_PLUGIN_NAME, "    warning: unrecognized Wake-on-LAN option '%c'", *flag);
+					break;
+				}
+			}
+			if (!(wol_flags & NM_SETTING_WIRED_WAKE_ON_MAGIC))
+				use_password = FALSE;
+
+			g_object_set (s_wired, NM_SETTING_WIRED_WAKE_ON_LAN, wol_flags, NULL);
+			iter += 2;
+		}
+
+		if (iter[0] && g_str_equal (iter[0], "sopass") && iter[1]) {
+			if (use_password) {
+				if (nm_utils_hwaddr_valid (words[1])) {
+					password = nm_utils_hwaddr_atoba (words[1], ARPHRD_ETHER);
+					g_object_set (s_wired, NM_SETTING_WIRED_WAKE_ON_LAN_PASSWORD, password, NULL);
+					g_byte_array_unref (password);
+				} else
+					PLUGIN_WARN (IFCFG_PLUGIN_NAME, "    warning: Wake-on-LAN password '%s' is invalid", words[1]);
+			} else
+				PLUGIN_WARN (IFCFG_PLUGIN_NAME, "    warning: Wake-on-LAN password not expected");
+			iter += 2;
+		}
+
+		if (iter[0]) {
+			char *leftover = g_strjoinv (" ", iter);
+
+			PLUGIN_WARN (IFCFG_PLUGIN_NAME, "    warning: unrecognized ETHTOOL_OPTIONS '%s'", leftover);
+			g_free (leftover);
+		}
+		g_strfreev (words);
+	}
+	g_free (value);
+
 	return (NMSetting *) s_wired;
 
 error:

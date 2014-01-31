@@ -84,6 +84,8 @@ typedef struct {
 	GPtrArray *s390_subchannels;
 	char *s390_nettype;
 	GHashTable *s390_options;
+	NMSettingWiredWakeOnLan wol;
+	GByteArray *wol_password;
 } NMSettingWiredPrivate;
 
 enum {
@@ -99,6 +101,8 @@ enum {
 	PROP_S390_SUBCHANNELS,
 	PROP_S390_NETTYPE,
 	PROP_S390_OPTIONS,
+	PROP_WAKE_ON_LAN,
+	PROP_WAKE_ON_LAN_PASSWORD,
 
 	LAST_PROP
 };
@@ -544,6 +548,44 @@ nm_setting_wired_get_valid_s390_options (NMSettingWired *setting)
 	return valid_s390_opts;
 }
 
+/**
+ * nm_setting_wired_get_wake_on_lan:
+ * @setting: the #NMSettingWired
+ *
+ * Returns the Wake-on-LAN setting
+ *
+ * Returns: the Wake-on-LAN setting
+ *
+ * Since: 0.9.10
+ */
+NMSettingWiredWakeOnLan
+nm_setting_wired_get_wake_on_lan (NMSettingWired *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRED (setting), 0);
+
+	return NM_SETTING_WIRED_GET_PRIVATE (setting)->wol;
+}
+
+/**
+ * nm_setting_wired_get_wake_on_lan_password:
+ * @setting: the #NMSettingWired
+ *
+ * Returns the Wake-on-LAN password. This only applies to
+ * %NM_SETTING_WIRED_WAKE_ON_MAGIC.
+ *
+ * Returns: the Wake-on-LAN setting password, or %NULL if there is no
+ *   password.
+ *
+ * Since: 0.9.10
+ */
+const GByteArray *
+nm_setting_wired_get_wake_on_lan_password (NMSettingWired *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRED (setting), NULL);
+
+	return NM_SETTING_WIRED_GET_PRIVATE (setting)->wol_password;
+}
+
 static gboolean
 verify (NMSetting *setting, GSList *all_settings, GError **error)
 {
@@ -642,6 +684,15 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 		return FALSE;
 	}
 
+	if (priv->wol_password && (priv->wol & NM_SETTING_WIRED_WAKE_ON_MAGIC) == 0) {
+		g_set_error_literal (error,
+		                     NM_SETTING_WIRED_ERROR,
+		                     NM_SETTING_WIRED_ERROR_INVALID_PROPERTY,
+		                     _("Wake-on-LAN password can only be used with magic packet mode"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRED_SETTING_NAME, NM_SETTING_WIRED_WAKE_ON_LAN_PASSWORD);
+		return FALSE;
+	}
+
 	return TRUE;
 }
 
@@ -676,6 +727,9 @@ finalize (GObject *object)
 		g_ptr_array_set_free_func (priv->s390_subchannels, g_free);
 		g_ptr_array_free (priv->s390_subchannels, TRUE);
 	}
+
+	if (priv->wol_password)
+		g_byte_array_free (priv->wol_password, TRUE);
 
 	G_OBJECT_CLASS (nm_setting_wired_parent_class)->finalize (object);
 }
@@ -743,6 +797,14 @@ set_property (GObject *object, guint prop_id,
 		if (new_hash)
 			g_hash_table_foreach (new_hash, copy_hash, priv->s390_options);
 		break;
+	case PROP_WAKE_ON_LAN:
+		priv->wol = g_value_get_flags (value);
+		break;
+	case PROP_WAKE_ON_LAN_PASSWORD:
+		if (priv->wol_password)
+			g_byte_array_free (priv->wol_password, TRUE);
+		priv->wol_password = g_value_dup_boxed (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -789,6 +851,12 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_S390_OPTIONS:
 		g_value_set_boxed (value, priv->s390_options);
+		break;
+	case PROP_WAKE_ON_LAN:
+		g_value_set_flags (value, priv->wol);
+		break;
+	case PROP_WAKE_ON_LAN_PASSWORD:
+		g_value_set_boxed (value, priv->wol_password);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1009,5 +1077,39 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_class)
 							   "'layer2', 'portname', 'protocol', among others.",
 							   DBUS_TYPE_G_MAP_OF_STRING,
 							   G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE));
+
+	/**
+	 * NMSettingWired:wake-on-lan:
+	 *
+	 * The Wake-on-LAN modes to use. Not all devices support all modes.
+	 *
+	 * Since: 0.9.10
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_WAKE_ON_LAN,
+		 g_param_spec_flags (NM_SETTING_WIRED_WAKE_ON_LAN,
+		                     "Wake-on-LAN",
+		                     "The Wake-on-LAN modes to use. "
+		                     "Not all devices support all modes.",
+		                     NM_TYPE_SETTING_WIRED_WAKE_ON_LAN, 0,
+		                     G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE));
+
+	/**
+	 * NMSettingWired:wake-on-lan-password:
+	 *
+	 * If specified, the password used with magic-packet-based Wake-on-LAN.
+	 * If %NULL, no password will be required.
+	 *
+	 * Since: 0.9.10
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_WAKE_ON_LAN_PASSWORD,
+		 _nm_param_spec_specialized (NM_SETTING_WIRED_WAKE_ON_LAN_PASSWORD,
+		                             "Wake-on-LAN Password",
+		                             "If specified, the password used with "
+		                             "magic-packet-based Wake-on-LAN. "
+		                             "If %NULL, no password will be required.",
+		                             DBUS_TYPE_G_UCHAR_ARRAY,
+		                             G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE));
 }
 

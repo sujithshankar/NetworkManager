@@ -1019,6 +1019,8 @@ write_wired_setting (NMConnection *connection, shvarFile *ifcfg, GError **error)
 	const GPtrArray *s390_subchannels;
 	GString *str;
 	const GSList *macaddr_blacklist;
+	NMSettingWiredWakeOnLan wol;
+	const GByteArray *wol_password;
 
 	s_wired = nm_connection_get_setting_wired (connection);
 	if (!s_wired) {
@@ -1122,6 +1124,36 @@ write_wired_setting (NMConnection *connection, shvarFile *ifcfg, GError **error)
 		}
 		if (str->len)
 			svSetValue (ifcfg, "OPTIONS", str->str, FALSE);
+		g_string_free (str, TRUE);
+	}
+
+	svSetValue (ifcfg, "ETHTOOL_OPTS", NULL, FALSE);
+	wol = nm_setting_wired_get_wake_on_lan (s_wired);
+	wol_password = nm_setting_wired_get_wake_on_lan_password (s_wired);
+	if (wol) {
+		str = g_string_sized_new (30);
+		g_string_append (str, "wol ");
+		if (wol & NM_SETTING_WIRED_WAKE_ON_PHY)
+			g_string_append_c (str, 'p');
+		if (wol & NM_SETTING_WIRED_WAKE_ON_UNICAST)
+			g_string_append_c (str, 'u');
+		if (wol & NM_SETTING_WIRED_WAKE_ON_MULTICAST)
+			g_string_append_c (str, 'm');
+		if (wol & NM_SETTING_WIRED_WAKE_ON_BROADCAST)
+			g_string_append_c (str, 'b');
+		if (wol & NM_SETTING_WIRED_WAKE_ON_ARP)
+			g_string_append_c (str, 'a');
+		if (wol & NM_SETTING_WIRED_WAKE_ON_MAGIC)
+			g_string_append_c (str, 'g');
+
+		if (wol_password && (wol & NM_SETTING_WIRED_WAKE_ON_MAGIC)) {
+			g_string_append_printf (str, "s sopass %02X:%02X:%02X:%02X:%02X:%02X",
+			                        wol_password->data[0], wol_password->data[1],
+			                        wol_password->data[2], wol_password->data[3],
+			                        wol_password->data[4], wol_password->data[5]);
+		}
+
+		svSetValue (ifcfg, "ETHTOOL_OPTS", str->str, FALSE);
 		g_string_free (str, TRUE);
 	}
 

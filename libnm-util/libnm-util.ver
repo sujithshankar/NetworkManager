@@ -518,9 +518,12 @@ global:
 	nm_setting_wired_get_speed;
 	nm_setting_wired_get_type;
 	nm_setting_wired_get_valid_s390_options;
+	nm_setting_wired_get_wake_on_lan;
+	nm_setting_wired_get_wake_on_lan_password;
 	nm_setting_wired_new;
 	nm_setting_wired_remove_mac_blacklist_item;
 	nm_setting_wired_remove_s390_option;
+	nm_setting_wired_wake_on_lan_get_type;
 	nm_setting_wireless_add_mac_blacklist_item;
 	nm_setting_wireless_add_seen_bssid;
 	nm_setting_wireless_ap_security_compatible;

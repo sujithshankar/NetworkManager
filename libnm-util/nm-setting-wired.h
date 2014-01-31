@@ -55,6 +55,29 @@ typedef enum {
 #define NM_SETTING_WIRED_ERROR nm_setting_wired_error_quark ()
 GQuark nm_setting_wired_error_quark (void);
 
+/**
+ * NMSettingWiredWakeOnLan:
+ * @NM_SETTING_WIRED_WAKE_ON_PHY: Wake on PHY activity
+ * @NM_SETTING_WIRED_WAKE_ON_UNICAST: Wake on unicast messages
+ * @NM_SETTING_WIRED_WAKE_ON_MULTICAST: Wake on multicast messages
+ * @NM_SETTING_WIRED_WAKE_ON_BROADCAST: Wake on broadcast messages
+ * @NM_SETTING_WIRED_WAKE_ON_ARP: Wake on ARP
+ * @NM_SETTING_WIRED_WAKE_ON_MAGIC: Wake on magic packet
+ *
+ * Options for #NMSettingWired:wake-on-lan. Note that not all options
+ * are supported by all devices.
+ *
+ * Since: 0.9.10
+ */
+typedef enum {
+	NM_SETTING_WIRED_WAKE_ON_PHY       = (1 << 0),
+	NM_SETTING_WIRED_WAKE_ON_UNICAST   = (1 << 1),
+	NM_SETTING_WIRED_WAKE_ON_MULTICAST = (1 << 2),
+	NM_SETTING_WIRED_WAKE_ON_BROADCAST = (1 << 3),
+	NM_SETTING_WIRED_WAKE_ON_ARP       = (1 << 4),
+	NM_SETTING_WIRED_WAKE_ON_MAGIC     = (1 << 5)
+} NMSettingWiredWakeOnLan;
+
 #define NM_SETTING_WIRED_PORT "port"
 #define NM_SETTING_WIRED_SPEED "speed"
 #define NM_SETTING_WIRED_DUPLEX "duplex"
@@ -66,6 +89,8 @@ GQuark nm_setting_wired_error_quark (void);
 #define NM_SETTING_WIRED_S390_SUBCHANNELS "s390-subchannels"
 #define NM_SETTING_WIRED_S390_NETTYPE "s390-nettype"
 #define NM_SETTING_WIRED_S390_OPTIONS "s390-options"
+#define NM_SETTING_WIRED_WAKE_ON_LAN "wake-on-lan"
+#define NM_SETTING_WIRED_WAKE_ON_LAN_PASSWORD "wake-on-lan-password"
 
 typedef struct {
 	NMSetting parent;
@@ -118,6 +143,9 @@ gboolean          nm_setting_wired_add_s390_option      (NMSettingWired *setting
 gboolean          nm_setting_wired_remove_s390_option   (NMSettingWired *setting,
                                                          const char *key);
 const char **     nm_setting_wired_get_valid_s390_options (NMSettingWired *setting);
+
+NMSettingWiredWakeOnLan  nm_setting_wired_get_wake_on_lan          (NMSettingWired *setting);
+const GByteArray        *nm_setting_wired_get_wake_on_lan_password (NMSettingWired *setting);
 
 G_END_DECLS
 
