@@ -1398,6 +1398,7 @@ device_state_changed (NMDevice *device,
 	NMPolicy *policy = (NMPolicy *) user_data;
 	NMPolicyPrivate *priv = NM_POLICY_GET_PRIVATE (policy);
 	NMSettingsConnection *connection = NM_SETTINGS_CONNECTION (nm_device_get_connection (device));
+	NMConnection *applied_connection = nm_device_get_applied_connection (device);
 	const char *ip_iface = nm_device_get_ip_iface (device);
 	NMIP4Config *ip4_config;
 	NMIP6Config *ip6_config;
@@ -1506,13 +1507,13 @@ device_state_changed (NMDevice *device,
 		nm_settings_connection_set_autoconnect_blocked_reason (connection, NM_DEVICE_STATE_REASON_NONE);
 		break;
 	case NM_DEVICE_STATE_SECONDARIES:
-		s_con = nm_connection_get_setting_connection (NM_CONNECTION (connection));
+		s_con = nm_connection_get_setting_connection (applied_connection);
 		if (s_con && nm_setting_connection_get_num_secondaries (s_con) > 0) {
 			/* Make routes and DNS up-to-date before activating dependent connections */
 			update_routing_and_dns (policy, FALSE);
 
 			/* Activate secondary (VPN) connections */
-			if (!activate_secondary_connections (policy, NM_CONNECTION (connection), device))
+			if (!activate_secondary_connections (policy, applied_connection, device))
 				nm_device_queue_state (device, NM_DEVICE_STATE_FAILED,
 				                       NM_DEVICE_STATE_REASON_SECONDARY_CONNECTION_FAILED);
 		} else
@@ -1866,8 +1867,8 @@ static void
 firewall_update_zone (NMPolicy *policy, NMConnection *connection)
 {
 	NMPolicyPrivate *priv = NM_POLICY_GET_PRIVATE (policy);
-	NMSettingConnection *s_con = nm_connection_get_setting_connection (connection);
 	GSList *iter, *devices;
+	const char *zone;
 
 	devices = nm_manager_get_devices (priv->manager);
 	/* find dev with passed connection and change zone its interface belongs to */
@@ -1876,12 +1877,21 @@ firewall_update_zone (NMPolicy *policy, NMConnection *connection)
 
 		if (   (nm_device_get_connection (dev) == connection)
 		    && (nm_device_get_state (dev) == NM_DEVICE_STATE_ACTIVATED)) {
+			/* The zone is one of the parameters, that have immediate effect when
+			 * updating the connection. Therefore, we copy the property over to the
+			 * applied_connection and change the zone. */
+			NMConnection *applied_connection = nm_device_get_applied_connection (dev);
+
+			zone = nm_setting_connection_get_zone (nm_connection_get_setting_connection (connection));
+			g_object_set (nm_connection_get_setting_connection (applied_connection),
+			              NM_SETTING_CONNECTION_ZONE, zone, NULL);
 			nm_firewall_manager_add_or_change_zone (priv->fw_manager,
 			                                        nm_device_get_ip_iface (dev),
-			                                        nm_setting_connection_get_zone (s_con),
+			                                        zone,
 			                                        FALSE, /* change zone */
 			                                        add_or_change_zone_cb,
 			                                        g_object_ref (dev));
+			break;
 		}
 	}
 }
@@ -1901,9 +1911,9 @@ firewall_started (NMFirewallManager *manager,
 	for (iter = devices; iter; iter = g_slist_next (iter)) {
 		NMDevice *dev = NM_DEVICE (iter->data);
 
-		connection = nm_device_get_connection (dev);
-		s_con = nm_connection_get_setting_connection (connection);
 		if (nm_device_get_state (dev) == NM_DEVICE_STATE_ACTIVATED) {
+			connection = nm_device_get_applied_connection (dev);
+			s_con = nm_connection_get_setting_connection (connection);
 			nm_firewall_manager_add_or_change_zone (priv->fw_manager,
 			                                        nm_device_get_ip_iface (dev),
 			                                        nm_setting_connection_get_zone (s_con),

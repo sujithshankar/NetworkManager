@@ -362,7 +362,7 @@ static NMActStageReturn
 act_stage1_prepare (NMDevice *device, NMDeviceStateReason *reason)
 {
 	NMActStageReturn ret;
-	NMConnection *connection = nm_device_get_connection (device);
+	NMConnection *connection = nm_device_get_applied_connection (device);
 
 	g_assert (connection);
 
@@ -378,13 +378,15 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *reason)
 static gboolean
 enslave_slave (NMDevice *device,
                NMDevice *slave,
-               NMConnection *connection,
                gboolean configure)
 {
+	NMConnection *connection;
+
 	if (configure) {
 		if (!nm_platform_link_enslave (nm_device_get_ip_ifindex (device), nm_device_get_ip_ifindex (slave)))
 			return FALSE;
 
+		connection = nm_device_get_applied_connection (slave);
 		commit_slave_options (slave, nm_connection_get_setting_bridge_port (connection));
 	}
 

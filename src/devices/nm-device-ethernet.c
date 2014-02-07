@@ -653,6 +653,7 @@ build_supplicant_config (NMDeviceEthernet *self)
 	NMSetting8021x *security;
 	NMConnection *connection;
 
+	/* FIXME: use applied connection */
 	connection = nm_device_get_connection (NM_DEVICE (self));
 	g_assert (connection);
 	con_uuid = nm_connection_get_uuid (connection);
@@ -977,6 +978,7 @@ nm_8021x_stage2_config (NMDeviceEthernet *self, NMDeviceStateReason *reason)
 	const char *iface;
 	NMActStageReturn ret = NM_ACT_STAGE_RETURN_FAILURE;
 
+	/* FIXME: use applied connection */
 	connection = nm_device_get_connection (NM_DEVICE (self));
 	g_assert (connection);
 	security = nm_connection_get_setting_802_1x (connection);
@@ -1167,7 +1169,7 @@ ip4_config_pre_commit (NMDevice *device, NMIP4Config *config)
 	if (NM_DEVICE_ETHERNET_GET_PRIVATE (device)->ppp_manager)
 		return;
 
-	connection = nm_device_get_connection (device);
+	connection = nm_device_get_applied_connection (device);
 	g_assert (connection);
 	s_wired = nm_connection_get_setting_wired (connection);
 	g_assert (s_wired);

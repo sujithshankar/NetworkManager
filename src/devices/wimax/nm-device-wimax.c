@@ -673,7 +673,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *reason)
 	iface = nm_device_get_iface (device);
 	g_assert (iface);
 
-	connection = nm_device_get_connection (device);
+	connection = nm_device_get_applied_connection (device);
 	g_assert (connection);
 
 	s_wimax = nm_connection_get_setting_wimax (connection);

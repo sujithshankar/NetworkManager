@@ -2162,6 +2162,7 @@ need_new_8021x_secrets (NMDeviceWifi *self,
 
 	g_assert (setting_name != NULL);
 
+	/* FIXME: use applied connection */
 	connection = nm_device_get_connection (NM_DEVICE (self));
 	g_return_val_if_fail (connection != NULL, FALSE);
 
@@ -2213,7 +2214,8 @@ need_new_wpa_psk (NMDeviceWifi *self,
 
 	g_assert (setting_name != NULL);
 
-	connection = nm_device_get_connection (NM_DEVICE (self));
+	/* FIXME: use applied connection */
+	connection = nm_device_get_applied_connection (NM_DEVICE (self));
 	g_return_val_if_fail (connection != NULL, FALSE);
 
 	/* A bad PSK will cause the supplicant to disconnect during the 4-way handshake */
@@ -2343,7 +2345,7 @@ supplicant_iface_state_cb (NMSupplicantInterface *iface,
 			NMSettingWireless *s_wifi;
 			const GByteArray *ssid;
 
-			connection = nm_device_get_connection (NM_DEVICE (self));
+			connection = nm_device_get_applied_connection (NM_DEVICE (self));
 			g_return_if_fail (connection);
 
 			s_wifi = nm_connection_get_setting_wireless (connection);
@@ -3069,7 +3071,7 @@ act_stage3_ip4_config_start (NMDevice *device,
 	NMSettingIP4Config *s_ip4;
 	const char *method = NM_SETTING_IP4_CONFIG_METHOD_AUTO;
 
-	connection = nm_device_get_connection (device);
+	connection = nm_device_get_applied_connection (device);
 	g_assert (connection);
 	s_ip4 = nm_connection_get_setting_ip4_config (connection);
 	if (s_ip4)
@@ -3092,7 +3094,7 @@ act_stage3_ip6_config_start (NMDevice *device,
 	NMSettingIP6Config *s_ip6;
 	const char *method = NM_SETTING_IP6_CONFIG_METHOD_AUTO;
 
-	connection = nm_device_get_connection (device);
+	connection = nm_device_get_applied_connection (device);
 	g_assert (connection);
 	s_ip6 = nm_connection_get_setting_ip6_config (connection);
 	if (s_ip6)
@@ -3113,7 +3115,7 @@ ip4_config_pre_commit (NMDevice *device, NMIP4Config *config)
 	NMSettingWireless *s_wifi;
 	guint32 mtu;
 
-	connection = nm_device_get_connection (device);
+	connection = nm_device_get_applied_connection (device);
 	g_assert (connection);
 	s_wifi = nm_connection_get_setting_wireless (connection);
 	g_assert (s_wifi);
@@ -3203,7 +3205,7 @@ act_stage4_ip4_config_timeout (NMDevice *dev, NMDeviceStateReason *reason)
 	gboolean may_fail = FALSE, chain_up = FALSE;
 	NMActStageReturn ret;
 
-	connection = nm_device_get_connection (dev);
+	connection = nm_device_get_applied_connection (dev);
 	g_assert (connection);
 
 	s_ip4 = nm_connection_get_setting_ip4_config (connection);
@@ -3224,7 +3226,7 @@ act_stage4_ip6_config_timeout (NMDevice *dev, NMDeviceStateReason *reason)
 	gboolean may_fail = FALSE, chain_up = FALSE;
 	NMActStageReturn ret;
 
-	connection = nm_device_get_connection (dev);
+	connection = nm_device_get_applied_connection (dev);
 	g_assert (connection);
 
 	s_ip6 = nm_connection_get_setting_ip6_config (connection);
@@ -3321,7 +3323,7 @@ activation_failure_handler (NMDevice *dev)
 {
 	NMConnection *connection;
 
-	connection = nm_device_get_connection (dev);
+	connection = nm_device_get_applied_connection (dev);
 	g_assert (connection);
 
 	/* Clear wireless secrets tries on failure */

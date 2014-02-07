@@ -306,7 +306,7 @@ act_stage2_config (NMDevice *dev, NMDeviceStateReason *reason)
 	const GByteArray *anycast_addr_array;
 	guint8 *anycast_addr = NULL;
 
-	connection = nm_device_get_connection (dev);
+	connection = nm_device_get_applied_connection (dev);
 	g_assert (connection);
 
 	s_mesh = nm_connection_get_setting_olpc_mesh (connection);

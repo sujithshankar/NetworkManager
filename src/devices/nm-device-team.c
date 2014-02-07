@@ -618,7 +618,7 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 
 	ret = NM_DEVICE_CLASS (nm_device_team_parent_class)->act_stage1_prepare (dev, reason);
 	if (ret == NM_ACT_STAGE_RETURN_SUCCESS) {
-		connection = nm_device_get_connection (dev);
+		connection = nm_device_get_applied_connection (dev);
 		g_assert (connection);
 		s_team = nm_connection_get_setting_team (connection);
 		g_assert (s_team);
@@ -641,7 +641,6 @@ deactivate (NMDevice *dev)
 static gboolean
 enslave_slave (NMDevice *device,
                NMDevice *slave,
-               NMConnection *connection,
                gboolean configure)
 {
 #if WITH_TEAMDCTL
@@ -651,12 +650,14 @@ enslave_slave (NMDevice *device,
 	const char *iface = nm_device_get_ip_iface (device);
 	const char *slave_iface = nm_device_get_ip_iface (slave);
 	NMSettingTeamPort *s_team_port;
+	NMConnection *connection;
 
 	nm_device_master_check_slave_physical_port (device, slave, LOGD_TEAM);
 
 	if (configure) {
 		nm_device_take_down (slave, TRUE);
 
+		connection = nm_device_get_applied_connection (slave);
 		s_team_port = nm_connection_get_setting_team_port (connection);
 		if (s_team_port) {
 			const char *config = nm_setting_team_port_get_config (s_team_port);

@@ -348,7 +348,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_reason)
 
 	g_assert (out_reason);
 
-	s_adsl = nm_connection_get_setting_adsl (nm_device_get_connection (device));
+	s_adsl = nm_connection_get_setting_adsl (nm_device_get_applied_connection (device));
 	g_assert (s_adsl);
 
 	protocol = nm_setting_adsl_get_protocol (s_adsl);
@@ -442,8 +442,8 @@ act_stage3_ip4_config_start (NMDevice *device,
 	req = nm_device_get_act_request (device);
 	g_assert (req);
 
-	connection = nm_act_request_get_connection (req);
-	g_assert (req);
+	connection = nm_act_request_get_applied_connection (req);
+	g_assert (connection);
 
 	s_adsl = nm_connection_get_setting_adsl (connection);
 	g_assert (s_adsl);

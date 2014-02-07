@@ -187,7 +187,6 @@ typedef struct {
 
 	gboolean        (* enslave_slave) (NMDevice *self,
 	                                   NMDevice *slave,
-	                                   NMConnection *connection,
 	                                   gboolean configure);
 
 	gboolean        (* release_slave) (NMDevice *self,
