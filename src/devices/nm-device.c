@@ -1584,6 +1584,14 @@ nm_device_get_connection (NMDevice *self)
 	return priv->act_request ? nm_act_request_get_connection (priv->act_request) : NULL;
 }
 
+NMConnection *
+nm_device_get_applied_connection (NMDevice *self)
+{
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
+
+	return priv->act_request ? nm_act_request_get_applied_connection (priv->act_request) : NULL;
+}
+
 static gboolean
 is_available (NMDevice *device)
 {

@@ -52,6 +52,7 @@ NMActRequest *nm_act_request_new          (NMConnection *connection,
                                            NMDevice *device);
 
 NMConnection *nm_act_request_get_connection (NMActRequest *req);
+NMConnection *nm_act_request_get_applied_connection (NMActRequest *req);
 
 gboolean      nm_act_request_get_shared (NMActRequest *req);
 

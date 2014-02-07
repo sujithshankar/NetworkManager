@@ -187,6 +187,12 @@ nm_active_connection_get_connection (NMActiveConnection *self)
 	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->connection;
 }
 
+NMConnection *
+nm_active_connection_get_applied_connection (NMActiveConnection *self)
+{
+	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->connection;
+}
+
 void
 nm_active_connection_set_connection (NMActiveConnection *self,
                                      NMConnection *connection)

@@ -88,6 +88,7 @@ void          nm_active_connection_authorize (NMActiveConnection *self,
 void          nm_active_connection_export (NMActiveConnection *self);
 
 NMConnection *nm_active_connection_get_connection (NMActiveConnection *self);
+NMConnection *nm_active_connection_get_applied_connection (NMActiveConnection *self);
 
 void          nm_active_connection_set_connection (NMActiveConnection *self,
                                                    NMConnection *connection);
