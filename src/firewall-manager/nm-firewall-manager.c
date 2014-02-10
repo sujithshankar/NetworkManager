@@ -114,6 +114,9 @@ nm_firewall_manager_add_or_change_zone (NMFirewallManager *self,
 	info->callback = callback;
 	info->user_data = user_data;
 
+	if (!zone)
+		zone = "";
+
 	nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone %s -> %s", iface, add ? "add" : "change", zone);
 	return dbus_g_proxy_begin_call_with_timeout (priv->proxy,
 	                                             add ? "addInterface" : "changeZone",
@@ -121,7 +124,7 @@ nm_firewall_manager_add_or_change_zone (NMFirewallManager *self,
 	                                             info,
 	                                             (GDestroyNotify) cb_info_free,
 	                                             10000,      /* timeout */
-	                                             G_TYPE_STRING, zone ? zone : "",
+	                                             G_TYPE_STRING, zone,
 	                                             G_TYPE_STRING, iface,
 	                                             G_TYPE_INVALID);
 }
