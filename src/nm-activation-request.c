@@ -69,7 +69,7 @@ enum {
 /*******************************************************************/
 
 NMConnection *
-nm_act_request_get_connection (NMActRequest *req)
+nm_act_request_get_applied_connection (NMActRequest *req)
 {
 	g_return_val_if_fail (NM_IS_ACT_REQUEST (req), NULL);
 

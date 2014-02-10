@@ -466,7 +466,7 @@ impl_ppp_manager_need_secrets (NMPPPManager *manager,
 	GError *error = NULL;
 	NMSettingsGetSecretsFlags flags = NM_SETTINGS_GET_SECRETS_FLAG_ALLOW_INTERACTION;
 
-	connection = nm_act_request_get_connection (priv->act_req);
+	connection = nm_act_request_get_applied_connection (priv->act_req);
 
 	nm_connection_clear_secrets (connection);
 	priv->secrets_setting_name = nm_connection_need_secrets (connection, &hints);
@@ -581,7 +581,7 @@ impl_ppp_manager_set_ip4_config (NMPPPManager *manager,
 	priv->ip_iface = g_value_dup_string (val);
 
 	/* Got successful IP4 config; obviously the secrets worked */
-	connection = nm_act_request_get_connection (priv->act_req);
+	connection = nm_act_request_get_applied_connection (priv->act_req);
 	g_assert (connection);
 	g_object_set_data (G_OBJECT (connection), PPP_MANAGER_SECRET_TRIES, NULL);
 
@@ -1036,7 +1036,7 @@ nm_ppp_manager_start (NMPPPManager *manager,
 	if (stat ("/dev/ppp", &st) || !S_ISCHR (st.st_mode))
 		ignored = system ("/sbin/modprobe ppp_generic");
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	s_ppp = nm_connection_get_setting_ppp (connection);

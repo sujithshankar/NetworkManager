@@ -134,7 +134,7 @@ get_best_ip4_device (NMManager *manager, gboolean fully_activated)
 
 		req = nm_device_get_act_request (dev);
 		g_assert (req);
-		connection = nm_act_request_get_connection (req);
+		connection = nm_act_request_get_applied_connection (req);
 		g_assert (connection);
 
 		method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP4_CONFIG);
@@ -213,7 +213,7 @@ get_best_ip6_device (NMManager *manager, gboolean fully_activated)
 
 		req = nm_device_get_act_request (dev);
 		g_assert (req);
-		connection = nm_act_request_get_connection (req);
+		connection = nm_act_request_get_applied_connection (req);
 		g_assert (connection);
 
 		method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP6_CONFIG);

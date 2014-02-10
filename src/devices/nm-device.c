@@ -1580,7 +1580,7 @@ nm_device_get_connection (NMDevice *self)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 
-	return priv->act_request ? nm_act_request_get_connection (priv->act_request) : NULL;
+	return priv->act_request ? nm_act_request_get_applied_connection (priv->act_request) : NULL;
 }
 
 NMConnection *
@@ -2373,7 +2373,7 @@ nm_device_handle_autoip4_event (NMDevice *self,
 	if (priv->act_request == NULL)
 		return;
 
-	connection = nm_act_request_get_connection (priv->act_request);
+	connection = nm_act_request_get_applied_connection (priv->act_request);
 	g_assert (connection);
 
 	/* Ignore if the connection isn't an AutoIP connection */
@@ -4282,7 +4282,7 @@ nm_device_activate_ip4_config_commit (gpointer user_data)
 
 	req = nm_device_get_act_request (self);
 	g_assert (req);
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	/* Device should be up before we can do anything with it */
@@ -4375,7 +4375,7 @@ nm_device_activate_ip6_config_commit (gpointer user_data)
 
 	req = nm_device_get_act_request (self);
 	g_assert (req);
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	/* Device should be up before we can do anything with it */
@@ -4670,7 +4670,7 @@ nm_device_deactivate (NMDevice *self, NMDeviceStateReason reason)
 	}
 
 	if (priv->act_request)
-		connection = nm_act_request_get_connection (priv->act_request);
+		connection = nm_act_request_get_applied_connection (priv->act_request);
 	if (connection) {
 		s_con = nm_connection_get_setting_connection (connection);
 		nm_firewall_manager_remove_from_zone (priv->fw_manager,
@@ -4825,7 +4825,7 @@ nm_device_activate (NMDevice *self, NMActRequest *req)
 
 	priv = NM_DEVICE_GET_PRIVATE (self);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	nm_log_info (LOGD_DEVICE, "Activation (%s) starting connection '%s'",
@@ -6488,7 +6488,7 @@ nm_device_state_changed (NMDevice *device,
 	case NM_DEVICE_STATE_ACTIVATED:
 		nm_log_info (LOGD_DEVICE, "Activation (%s) successful, device activated.",
 		             nm_device_get_iface (device));
-		nm_dispatcher_call (DISPATCHER_ACTION_UP, nm_act_request_get_connection (req), device, NULL, NULL);
+		nm_dispatcher_call (DISPATCHER_ACTION_UP, nm_act_request_get_applied_connection (req), device, NULL, NULL);
 		break;
 	case NM_DEVICE_STATE_FAILED: {
 		NMConnection *connection = nm_device_get_connection (device);
@@ -6543,7 +6543,7 @@ nm_device_state_changed (NMDevice *device,
 		delete_on_deactivate_unschedule (priv);
 
 	if (old_state == NM_DEVICE_STATE_ACTIVATED)
-		nm_dispatcher_call (DISPATCHER_ACTION_DOWN, nm_act_request_get_connection (req), device, NULL, NULL);
+		nm_dispatcher_call (DISPATCHER_ACTION_DOWN, nm_act_request_get_applied_connection (req), device, NULL, NULL);
 
 	/* IP-related properties are only valid when the device has IP configuration.
 	 * If it no longer does, ensure their change notifications are emitted.

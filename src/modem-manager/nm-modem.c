@@ -236,7 +236,7 @@ ppp_stage3_ip4_config_start (NMModem *self,
 	g_return_val_if_fail (reason !=	NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
 	if (NM_MODEM_GET_CLASS (self)->get_user_pass) {
-		NMConnection *connection = nm_act_request_get_connection (req);
+		NMConnection *connection = nm_act_request_get_applied_connection (req);
 
 		g_assert (connection);
 		if (!NM_MODEM_GET_CLASS (self)->get_user_pass (self, connection, &ppp_name, NULL))

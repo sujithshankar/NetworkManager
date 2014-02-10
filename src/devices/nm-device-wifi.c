@@ -636,7 +636,7 @@ update_seen_bssids_cache (NMDeviceWifi *self, NMAccessPoint *ap)
 	if (nm_device_get_state (NM_DEVICE (self)) == NM_DEVICE_STATE_ACTIVATED) {
 		req = nm_device_get_act_request (NM_DEVICE (self));
 		if (req) {
-			connection = nm_act_request_get_connection (req);
+			connection = nm_act_request_get_applied_connection (req);
 			nm_settings_connection_add_seen_bssid (NM_SETTINGS_CONNECTION (connection),
 			                                       nm_ap_get_address (ap));
 		}
@@ -845,7 +845,7 @@ deactivate (NMDevice *dev)
 
 	req = nm_device_get_act_request (dev);
 	if (req) {
-		connection = nm_act_request_get_connection (req);
+		connection = nm_act_request_get_applied_connection (req);
 		/* Clear wireless secrets tries when deactivating */
 		g_object_set_data (G_OBJECT (connection), WIRELESS_SECRETS_TRIES, NULL);
 	}
@@ -1537,7 +1537,7 @@ scanning_allowed (NMDeviceWifi *self)
 		const GByteArray *bssid;
 
 		/* Don't scan when a shared connection is active; it makes drivers mad */
-		connection = nm_act_request_get_connection (req);
+		connection = nm_act_request_get_applied_connection (req);
 		ip4_method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP4_CONFIG);
 
 		if (!strcmp (ip4_method, NM_SETTING_IP4_CONFIG_METHOD_SHARED))
@@ -2085,7 +2085,7 @@ wifi_secrets_cb (NMActRequest *req,
 
 	g_return_if_fail (req == nm_device_get_act_request (dev));
 	g_return_if_fail (nm_device_get_state (dev) == NM_DEVICE_STATE_NEED_AUTH);
-	g_return_if_fail (nm_act_request_get_connection (req) == connection);
+	g_return_if_fail (nm_act_request_get_applied_connection (req) == connection);
 
 	if (error) {
 		nm_log_warn (LOGD_WIFI, "%s", error->message);
@@ -2252,7 +2252,7 @@ handle_8021x_or_psk_auth_fail (NMDeviceWifi *self,
 	req = nm_device_get_act_request (NM_DEVICE (self));
 	g_return_val_if_fail (req != NULL, FALSE);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	if (   need_new_8021x_secrets (self, old_state, &setting_name)
@@ -2532,7 +2532,7 @@ handle_auth_or_fail (NMDeviceWifi *self,
 		g_assert (req);
 	}
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	tries = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (connection), WIRELESS_SECRETS_TRIES));
@@ -2587,7 +2587,7 @@ supplicant_connection_timeout_cb (gpointer user_data)
 	req = nm_device_get_act_request (dev);
 	g_assert (req);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	if (   priv->mode == NM_802_11_MODE_ADHOC
@@ -2827,7 +2827,7 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 	req = nm_device_get_act_request (NM_DEVICE (self));
 	g_return_val_if_fail (req != NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_return_val_if_fail (connection != NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
 	s_wireless = nm_connection_get_setting_wireless (connection);
@@ -2970,7 +2970,7 @@ act_stage2_config (NMDevice *dev, NMDeviceStateReason *reason)
 		goto out;
 	}
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	s_wireless = nm_connection_get_setting_wireless (connection);
@@ -3253,7 +3253,7 @@ activation_success_handler (NMDevice *dev)
 	req = nm_device_get_act_request (dev);
 	g_assert (req);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	/* Clear any critical protocol notification in the wifi stack */

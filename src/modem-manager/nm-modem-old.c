@@ -547,7 +547,7 @@ act_stage1_prepare (NMModem *modem,
 	NMModemOldPrivate *priv = NM_MODEM_OLD_GET_PRIVATE (self);
 	NMConnection *connection;
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_assert (connection);
 
 	*out_setting_name = nm_connection_need_secrets (connection, out_hints);

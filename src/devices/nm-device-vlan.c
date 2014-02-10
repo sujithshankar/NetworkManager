@@ -372,7 +372,7 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *reason)
 	req = nm_device_get_act_request (dev);
 	g_return_val_if_fail (req != NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
-	connection = nm_act_request_get_connection (req);
+	connection = nm_act_request_get_applied_connection (req);
 	g_return_val_if_fail (connection != NULL, NM_ACT_STAGE_RETURN_FAILURE);
 
 	s_wired = nm_connection_get_setting_wired (connection);
