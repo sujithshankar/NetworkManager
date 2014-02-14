@@ -2742,6 +2742,45 @@ udev_device_removed (NMPlatform *platform,
 }
 
 static void
+udev_device_changed (NMPlatform *platform,
+                     GUdevDevice *udev_device)
+{
+	NMLinuxPlatformPrivate *priv = NM_LINUX_PLATFORM_GET_PRIVATE (platform);
+	const char *ifname;
+	int ifindex;
+
+	ifname = g_udev_device_get_name (udev_device);
+	if (!ifname) {
+		debug ("failed to get device's interface");
+		return;
+	}
+
+	if (g_udev_device_get_property (udev_device, "IFINDEX"))
+		ifindex = g_udev_device_get_property_as_int (udev_device, "IFINDEX");
+	else {
+		warning ("(%s): failed to get device's ifindex", ifname);
+		return;
+	}
+
+//	if (!g_hash_table_lookup (priv->udev_devices, GINT_TO_POINTER (info->ifindex))) {
+//		debug ("(%s): failed to get device's ifindex", ifname, ifindex);
+//		return;
+//	}
+
+	/* Replace the old udev device with the new one */
+	g_hash_table_insert (priv->udev_devices, GINT_TO_POINTER (ifindex),
+	                     g_object_ref (udev_device));
+
+	/* Announce device 'move'. */
+	if (ifindex) {
+		auto_nl_object struct rtnl_link *rtnllink = rtnl_link_get (priv->link_cache, ifindex);
+
+		if (rtnllink)
+			announce_object (platform, (struct nl_object *) rtnllink, CHANGED, NM_PLATFORM_REASON_EXTERNAL);
+	}
+}
+
+static void
 handle_udev_event (GUdevClient *client,
                    const char *action,
                    GUdevDevice *udev_device,
@@ -2768,6 +2807,8 @@ handle_udev_event (GUdevClient *client,
 		udev_device_added (platform, udev_device);
 	if (!strcmp (action, "remove"))
 		udev_device_removed (platform, udev_device);
+	if (!strcmp (action, "move"))
+		udev_device_changed (platform, udev_device);
 }
 
 /******************************************************************/

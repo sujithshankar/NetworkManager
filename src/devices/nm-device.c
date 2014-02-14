@@ -5608,6 +5608,12 @@ set_property (GObject *object, guint prop_id,
 			}
 		}
 		break;
+	case PROP_IP_IFACE:
+		if (g_value_get_string (value)) {
+			g_free (priv->ip_iface);
+			priv->ip_iface = g_value_dup_string (value);
+		}
+		break;
 	case PROP_DRIVER:
 		if (g_value_get_string (value)) {
 			g_free (priv->driver);
@@ -5881,7 +5887,7 @@ nm_device_class_init (NMDeviceClass *klass)
 		                      "IP Interface",
 		                      "IP Interface",
 		                      NULL,
-		                      G_PARAM_READABLE));
+		                      G_PARAM_READWRITE));
 
 	g_object_class_install_property
 		(object_class, PROP_DRIVER,

@@ -2310,6 +2310,27 @@ platform_link_removed_cb (NMPlatform *platform,
 }
 
 static void
+platform_link_changed_cb (NMPlatform *platform,
+                          int ifindex,
+                          NMPlatformLink *plink,
+                          NMPlatformReason reason,
+                          gpointer user_data)
+{
+	NMManager *self = NM_MANAGER (user_data);
+	NMDevice *device;
+	const char *plink_name;
+
+	/* Handle interface renaming */
+	plink_name = nm_platform_link_get_name (ifindex);
+	device = find_device_by_ifindex (self, ifindex);
+g_print (">>>>>>> NMManager: platform_link_changed_cb: old_name: %s, device name: %s\n", nm_device_get_ip_iface (device), plink_name);
+	if (device) {
+		if (g_strcmp0 (nm_device_get_ip_iface (device), plink_name) != 0)
+			g_object_set (G_OBJECT (device), NM_DEVICE_IP_IFACE, plink_name, NULL);
+	}
+}
+
+static void
 atm_device_added_cb (NMAtmManager *atm_mgr,
                      const char *iface,
                      const char *sysfs_path,
@@ -4780,6 +4801,10 @@ nm_manager_new (NMSettings *settings,
 	g_signal_connect (nm_platform_get (),
 	                  NM_PLATFORM_LINK_REMOVED,
 	                  G_CALLBACK (platform_link_removed_cb),
+	                  singleton);
+	g_signal_connect (nm_platform_get (),
+	                  NM_PLATFORM_LINK_CHANGED,
+	                  G_CALLBACK (platform_link_changed_cb),
 	                  singleton);
 
 	priv->atm_mgr = nm_atm_manager_new ();
