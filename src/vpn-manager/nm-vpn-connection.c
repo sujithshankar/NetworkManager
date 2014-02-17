@@ -88,6 +88,10 @@ typedef struct {
 	int ip_ifindex;
 	char *banner;
 	guint32 mtu;
+
+	NMFirewallManager *fw_manager;
+	DBusGProxyCall    *fw_call;
+	gboolean           fw_set;
 } NMVPNConnectionPrivate;
 
 #define NM_VPN_CONNECTION_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_VPN_CONNECTION, NMVPNConnectionPrivate))
@@ -745,6 +749,21 @@ nm_vpn_connection_apply_config (NMVPNConnection *connection)
 }
 
 static void
+fw_add_to_zone_cb (GError *error, gpointer user_data)
+{
+	NMVPNConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
+
+	if (!priv->fw_call)
+		return;
+
+	nm_log_info (LOGD_DEVICE, "Activation (%s) Stage 3 of 5 (IP Configure Start) scheduled.",
+		         nm_device_get_iface (self));
+	nm_log_dbg (LOGD_VPN, "VPN connection '%s' setting firewall zon:qe %c%s%c",
+	            nm_connection_get_id (priv->connection), zone?'\'':'(', zone?zone:"null", zone?'\'':')');
+
+}
+
+static void
 nm_vpn_connection_config_maybe_complete (NMVPNConnection *connection,
                                          gboolean         success)
 {
@@ -757,9 +776,53 @@ nm_vpn_connection_config_maybe_complete (NMVPNConnection *connection,
 		return;
 	}
 
+	if (success && !priv->fw_set) {
+		const char *ip_iface = nm_vpn_connection_get_ip_iface (connection);
+		NMSettingConnection *s_con = nm_connection_get_setting_connection (priv->connection);
+		const char *zone = nm_setting_connection_get_zone (s_con);
+
+		priv->fw_set = TRUE;
+
+		if (ip_iface) {
+			/* not yet started setting the firewall zone. Start now. */
+			nm_log_dbg (LOGD_VPN, "VPN connection '%s' setting firewall zone %c%s%c",
+			            nm_connection_get_id (priv->connection), zone?'\'':'(', zone?zone:"null", zone?'\'':')');
+			priv->fw_call = nm_firewall_manager_add_or_change_zone (priv->fw_manager,
+			                                                        ip_iface,
+			                                                        zone,
+			                                                        TRUE,
+			                                                        fw_add_to_zone_cb,
+			                                                        connection);
+			return;
+		} else {
+			NMDevice *parent;
+			NMConnection *connection;
+
+			parent = nm_active_connection_get_device (NM_ACTIVE_CONNECTION (vpn));
+			connection = parent ? nm_device_get_connection (parent) : NULL;
+			if (!connection) {
+				nm_log_warn (LOGD_VPN, "VPN connection '%s' has no device to set the firewall zone %c%s%c and there is no active parent device",
+				             nm_connection_get_id (priv->connection), zone?'\'':'(', zone?zone:"null", zone?'\'':')');
+			} else {
+				NMSettingConnection *parent_s_con = nm_connection_get_setting_connection (connection);
+				const char *parent_zone = parent_s_con ? nm_setting_connection_get_zone (parent_s_con) : NULL;
+
+				if (!parent_s_con || g_strcmp0 (parent_zone, zone) != 0) {
+					nm_log_warn (LOGD_VPN, "VPN connection '%s' has no device to set the firewall zone %c%s%c, but the parent device is configured for a different zone: %c%s%c",
+					             nm_connection_get_id (priv->connection), zone?'\'':'(', zone?zone:"null", zone?'\'':')',
+					             parent_zone?'\'':'(', parent_zone?parent_zone:"null", parent_zone?'\'':')');
+				} else {
+					nm_log_warn (LOGD_VPN, "VPN connection '%s' has no device to set the firewall zone %c%s%c, but the parent device is configured for the same zone",
+					             nm_connection_get_id (priv->connection), zone?'\'':'(', zone?zone:"null", zone?'\'':')');
+				}
+			}
+		}
+	}
+
 	if (success) {
 		if (   (priv->has_ip4 && !priv->ip4_config)
-		    || (priv->has_ip6 && !priv->ip6_config)) {
+		    || (priv->has_ip6 && !priv->ip6_config)
+		    || !priv->fw_set) {
 			/* Need to wait for other config */
 			return;
 		}
