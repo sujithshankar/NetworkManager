@@ -150,13 +150,6 @@ typedef enum {
 	N_TYPES,
 } ObjectType;
 
-typedef enum {
-	ADDED,
-	CHANGED,
-	REMOVED,
-	N_STATUSES
-} ObjectStatus;
-
 static ObjectType
 object_type_from_nl_object (const struct nl_object *object)
 {
@@ -969,12 +962,12 @@ init_ip6_route (NMPlatformIP6Route *route, struct rtnl_route *rtnlroute)
 
 /* Object and cache manipulation */
 
-static const char *signal_by_type_and_status[N_TYPES][N_STATUSES] = {
-	[LINK]        = { NM_PLATFORM_LINK_ADDED,        NM_PLATFORM_LINK_CHANGED,        NM_PLATFORM_LINK_REMOVED },
-	[IP4_ADDRESS] = { NM_PLATFORM_IP4_ADDRESS_ADDED, NM_PLATFORM_IP4_ADDRESS_CHANGED, NM_PLATFORM_IP4_ADDRESS_REMOVED },
-	[IP6_ADDRESS] = { NM_PLATFORM_IP6_ADDRESS_ADDED, NM_PLATFORM_IP6_ADDRESS_CHANGED, NM_PLATFORM_IP6_ADDRESS_REMOVED },
-	[IP4_ROUTE]   = { NM_PLATFORM_IP4_ROUTE_ADDED,   NM_PLATFORM_IP4_ROUTE_CHANGED,   NM_PLATFORM_IP4_ROUTE_REMOVED },
-	[IP6_ROUTE]   = { NM_PLATFORM_IP6_ROUTE_ADDED,   NM_PLATFORM_IP6_ROUTE_CHANGED,   NM_PLATFORM_IP6_ROUTE_REMOVED }
+static const char *signal_by_type_and_status[N_TYPES] = {
+	[LINK]        = NM_PLATFORM_LINK,
+	[IP4_ADDRESS] = NM_PLATFORM_IP4_ADDRESS,
+	[IP6_ADDRESS] = NM_PLATFORM_IP6_ADDRESS,
+	[IP4_ROUTE]   = NM_PLATFORM_IP4_ROUTE,
+	[IP6_ROUTE]   = NM_PLATFORM_IP6_ROUTE,
 };
 
 static struct nl_cache *
@@ -1043,11 +1036,11 @@ check_cache_items (NMPlatform *platform, struct nl_cache *cache, int ifindex)
 }
 
 static void
-announce_object (NMPlatform *platform, const struct nl_object *object, ObjectStatus status, NMPlatformReason reason)
+announce_object (NMPlatform *platform, const struct nl_object *object, NMPlatformSignalChangeType change_type, NMPlatformReason reason)
 {
 	NMLinuxPlatformPrivate *priv = NM_LINUX_PLATFORM_GET_PRIVATE (platform);
 	ObjectType object_type = object_type_from_nl_object (object);
-	const char *sig = signal_by_type_and_status[object_type][status];
+	const char *sig = signal_by_type_and_status[object_type];
 
 	switch (object_type) {
 	case LINK:
@@ -1063,9 +1056,9 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			 * event_notification() or link_delete() which block the announcment
 			 * themselves when appropriate.
 			 */
-			switch (status) {
-			case ADDED:
-			case CHANGED:
+			switch (change_type) {
+			case NM_PLATFORM_SIGNAL_ADDED:
+			case NM_PLATFORM_SIGNAL_CHANGED:
 				if (!link_is_software (rtnl_link) && !device.driver)
 					return;
 				break;
@@ -1079,12 +1072,12 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			 * More precisely, kernel removes routes when interface goes !IFF_UP and
 			 * removes both addresses and routes when interface is removed.
 			 */
-			switch (status) {
-			case CHANGED:
+			switch (change_type) {
+			case NM_PLATFORM_SIGNAL_CHANGED:
 				if (!device.connected)
 					check_cache_items (platform, priv->route_cache, device.ifindex);
 				break;
-			case REMOVED:
+			case NM_PLATFORM_SIGNAL_REMOVED:
 				check_cache_items (platform, priv->address_cache, device.ifindex);
 				check_cache_items (platform, priv->route_cache, device.ifindex);
 				break;
@@ -1092,7 +1085,7 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 				break;
 			}
 
-			g_signal_emit_by_name (platform, sig, device.ifindex, &device, reason);
+			g_signal_emit_by_name (platform, sig, device.ifindex, &device, change_type, reason);
 		}
 		return;
 	case IP4_ADDRESS:
@@ -1104,15 +1097,15 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			/* Address deletion is sometimes accompanied by route deletion. We need to
 			 * check all routes belonging to the same interface.
 			 */
-			switch (status) {
-			case REMOVED:
+			switch (change_type) {
+			case NM_PLATFORM_SIGNAL_REMOVED:
 				check_cache_items (platform, priv->route_cache, address.ifindex);
 				break;
 			default:
 				break;
 			}
 
-			g_signal_emit_by_name (platform, sig, address.ifindex, &address, reason);
+			g_signal_emit_by_name (platform, sig, address.ifindex, &address, change_type, reason);
 		}
 		return;
 	case IP6_ADDRESS:
@@ -1120,7 +1113,7 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			NMPlatformIP6Address address;
 
 			init_ip6_address (&address, (struct rtnl_addr *) object);
-			g_signal_emit_by_name (platform, sig, address.ifindex, &address, reason);
+			g_signal_emit_by_name (platform, sig, address.ifindex, &address, change_type, reason);
 		}
 		return;
 	case IP4_ROUTE:
@@ -1128,7 +1121,7 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			NMPlatformIP4Route route;
 
 			if (init_ip4_route (&route, (struct rtnl_route *) object))
-				g_signal_emit_by_name (platform, sig, route.ifindex, &route, reason);
+				g_signal_emit_by_name (platform, sig, route.ifindex, &route, change_type, reason);
 		}
 		return;
 	case IP6_ROUTE:
@@ -1136,7 +1129,7 @@ announce_object (NMPlatform *platform, const struct nl_object *object, ObjectSta
 			NMPlatformIP6Route route;
 
 			if (init_ip6_route (&route, (struct rtnl_route *) object))
-				g_signal_emit_by_name (platform, sig, route.ifindex, &route, reason);
+				g_signal_emit_by_name (platform, sig, route.ifindex, &route, change_type, reason);
 		}
 		return;
 	default:
@@ -1167,7 +1160,7 @@ refresh_object (NMPlatform *platform, struct nl_object *object, gboolean removed
 		if (cached_object) {
 			nl_cache_remove (cached_object);
 
-			announce_object (platform, cached_object, REMOVED, reason);
+			announce_object (platform, cached_object, NM_PLATFORM_SIGNAL_REMOVED, reason);
 		}
 	} else {
 		if (!kernel_object)
@@ -1183,7 +1176,7 @@ refresh_object (NMPlatform *platform, struct nl_object *object, gboolean removed
 			return FALSE;
 		}
 
-		announce_object (platform, kernel_object, cached_object ? CHANGED : ADDED, reason);
+		announce_object (platform, kernel_object, cached_object ? NM_PLATFORM_SIGNAL_CHANGED : NM_PLATFORM_SIGNAL_ADDED, reason);
 
 		/* Refresh the master device (even on enslave/release) */
 		if (object_type_from_nl_object (kernel_object) == LINK) {
@@ -1379,7 +1372,7 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 			if (!link_is_announceable (platform, (struct rtnl_link *) cached_object))
 				return NL_OK;
 		}
-		announce_object (platform, cached_object, REMOVED, NM_PLATFORM_REASON_EXTERNAL);
+		announce_object (platform, cached_object, NM_PLATFORM_SIGNAL_REMOVED, NM_PLATFORM_REASON_EXTERNAL);
 
 		return NL_OK;
 	case RTM_NEWLINK:
@@ -1400,7 +1393,7 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 				error ("netlink cache error: %s", nl_geterror (nle));
 				return NL_OK;
 			}
-			announce_object (platform, kernel_object, ADDED, NM_PLATFORM_REASON_EXTERNAL);
+			announce_object (platform, kernel_object, NM_PLATFORM_SIGNAL_ADDED, NM_PLATFORM_REASON_EXTERNAL);
 			return NL_OK;
 		}
 		/* Ignore non-change
@@ -1417,7 +1410,7 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 			error ("netlink cache error: %s", nl_geterror (nle));
 			return NL_OK;
 		}
-		announce_object (platform, kernel_object, CHANGED, NM_PLATFORM_REASON_EXTERNAL);
+		announce_object (platform, kernel_object, NM_PLATFORM_SIGNAL_CHANGED, NM_PLATFORM_REASON_EXTERNAL);
 
 		return NL_OK;
 	default:
@@ -3061,7 +3054,7 @@ udev_device_added (NMPlatform *platform,
 		return;
 	}
 
-	announce_object (platform, (struct nl_object *) rtnllink, ADDED, NM_PLATFORM_REASON_EXTERNAL);
+	announce_object (platform, (struct nl_object *) rtnllink, NM_PLATFORM_SIGNAL_ADDED, NM_PLATFORM_REASON_EXTERNAL);
 }
 
 static void
@@ -3097,7 +3090,7 @@ udev_device_removed (NMPlatform *platform,
 		auto_nl_object struct rtnl_link *device = rtnl_link_get (priv->link_cache, ifindex);
 
 		if (device)
-			announce_object (platform, (struct nl_object *) device, REMOVED, NM_PLATFORM_REASON_EXTERNAL);
+			announce_object (platform, (struct nl_object *) device, NM_PLATFORM_SIGNAL_REMOVED, NM_PLATFORM_REASON_EXTERNAL);
 	}
 }
 

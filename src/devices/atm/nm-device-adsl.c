@@ -320,10 +320,16 @@ error:
 }
 
 static void
-lost_link (NMPlatform *platform, int ifindex, NMPlatformLink *info, NMPlatformReason reason, NMDeviceAdsl *device_adsl)
+lost_link (NMPlatform *platform, int ifindex, NMPlatformLink *info, NMPlatformSignalChangeType change_type, NMPlatformReason reason, NMDeviceAdsl *device_adsl)
 {
-	NMDeviceAdslPrivate *priv = NM_DEVICE_ADSL_GET_PRIVATE (device_adsl);
-	NMDevice *device = NM_DEVICE (device_adsl);
+	NMDeviceAdslPrivate *priv;
+	NMDevice *device;
+
+	if (change_type != NM_PLATFORM_SIGNAL_REMOVED)
+		return;
+
+	priv = NM_DEVICE_ADSL_GET_PRIVATE (device_adsl);
+	device = NM_DEVICE (device_adsl);
 
 	/* This only gets called for PPPoE connections and "nas" interfaces */
 
@@ -370,7 +376,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_reason)
 		}
 
 		/* Watch for the 'nas' interface going away */
-		priv->lost_link_id = g_signal_connect (nm_platform_get (), NM_PLATFORM_LINK_REMOVED,
+		priv->lost_link_id = g_signal_connect (nm_platform_get (), NM_PLATFORM_LINK,
 		                                       G_CALLBACK (lost_link),
 		                                       self);
 
