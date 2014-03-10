@@ -2758,13 +2758,9 @@ dhcp4_start (NMDevice *self,
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	NMSettingIP4Config *s_ip4;
-	guint8 *anycast = NULL;
 	GByteArray *tmp = NULL;
 
 	s_ip4 = nm_connection_get_setting_ip4_config (connection);
-
-	if (priv->dhcp_anycast_address)
-		anycast = priv->dhcp_anycast_address->data;
 
 	/* Clear old exported DHCP options */
 	if (priv->dhcp4_config)
@@ -2784,7 +2780,7 @@ dhcp4_start (NMDevice *self,
 	                                                nm_connection_get_uuid (connection),
 	                                                s_ip4,
 	                                                priv->dhcp_timeout,
-	                                                anycast);
+	                                                priv->dhcp_anycast_address);
 
 	if (tmp)
 		g_byte_array_free (tmp, TRUE);
@@ -3187,7 +3183,6 @@ dhcp6_start (NMDevice *self,
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	NMActStageReturn ret = NM_ACT_STAGE_RETURN_FAILURE;
-	guint8 *anycast = NULL;
 	GByteArray *tmp = NULL;
 
 	if (!connection) {
@@ -3196,9 +3191,6 @@ dhcp6_start (NMDevice *self,
 	}
 
 	/* Begin a DHCP transaction on the interface */
-
-	if (priv->dhcp_anycast_address)
-		anycast = priv->dhcp_anycast_address->data;
 
 	/* Clear old exported DHCP options */
 	if (priv->dhcp6_config)
@@ -3222,7 +3214,7 @@ dhcp6_start (NMDevice *self,
 	                                                nm_connection_get_uuid (connection),
 	                                                nm_connection_get_setting_ip6_config (connection),
 	                                                priv->dhcp_timeout,
-	                                                anycast,
+	                                                priv->dhcp_anycast_address,
 	                                                (dhcp_opt == NM_RDISC_DHCP_LEVEL_OTHERCONF) ? TRUE : FALSE);
 	if (tmp)
 		g_byte_array_free (tmp, TRUE);
