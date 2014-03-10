@@ -116,6 +116,7 @@ typedef struct {
 GType nm_dhcp_client_get_type (void);
 
 GPid nm_dhcp_client_get_pid (NMDHCPClient *self);
+gboolean nm_dhcp_client_is_reaped (NMDHCPClient *self);
 
 const char *nm_dhcp_client_get_iface (NMDHCPClient *self);
 

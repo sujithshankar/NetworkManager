@@ -84,10 +84,36 @@ typedef struct {
 	NMHostnameProvider *hostname_provider;
 } NMDHCPManagerPrivate;
 
+struct client_data {
+	NMDHCPClient *client;
+
+	/* owns_client==TRUE means we have a ref of the client, but weak ref.
+	 * Otherwise, we don't own a reference, but have a weak ref registered
+	 * to get notification about removal. */
+	gboolean owns_client;
+
+	gboolean started;
+	guint instance_counter;
+	gboolean ipv6;
+	char *iface;
+	gulong timeout_id;
+	gulong remove_id;
+
+	/* cache parameters to start the client, if we queue/delate the start
+	 * due to concurrent clients.*/
+	char *dhcp_client_id;
+	GByteArray *dhcp_anycast_addr;
+	char *hostname;
+	gboolean info_only;
+};
 
 #define NM_DHCP_MANAGER_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_DHCP_MANAGER, NMDHCPManagerPrivate))
 
 G_DEFINE_TYPE (NMDHCPManager, nm_dhcp_manager, G_TYPE_OBJECT)
+
+
+static void remove_client (NMDHCPManager *self, NMDHCPClient *client, gboolean force);
+
 
 static char *
 garray_to_string (GArray *array, const char *key)
@@ -123,51 +149,104 @@ garray_to_string (GArray *array, const char *key)
 }
 
 static NMDHCPClient *
-get_client_for_pid (NMDHCPManager *manager, GPid pid)
+get_client_for_pid (NMDHCPManager *manager, GPid pid, const char *iface)
 {
 	NMDHCPManagerPrivate *priv;
 	GHashTableIter iter;
 	gpointer value;
+	struct client_data *best = NULL;
 
 	g_return_val_if_fail (NM_IS_DHCP_MANAGER (manager), NULL);
+
+	g_return_val_if_fail (pid >= 0, NULL);
 
 	priv = NM_DHCP_MANAGER_GET_PRIVATE (manager);
 
 	g_hash_table_iter_init (&iter, priv->clients);
 	while (g_hash_table_iter_next (&iter, NULL, &value)) {
-		NMDHCPClient *candidate = NM_DHCP_CLIENT (value);
+		struct client_data *client_data = value;
+		NMDHCPClient *candidate = NM_DHCP_CLIENT (client_data->client);
 
-		if (nm_dhcp_client_get_pid (candidate) == pid)
-			return candidate;
+		if (!client_data->started) {
+			/* not yet started clients don't even have a PID. */
+			continue;
+		}
+
+		if (nm_dhcp_client_get_pid (candidate) == pid) {
+			if (!nm_dhcp_client_is_reaped (candidate) && client_data->owns_client)
+				return candidate;
+
+			/* we have a dead candidate for this PID. If it has a matching @iface
+			 * we accept it. */
+			if (g_strcmp0 (iface, nm_dhcp_client_get_iface (candidate)) != 0)
+				continue;
+
+			/* If we have more then one candidates, choose the last recently created
+			 * one. */
+			if (   !best
+			    || best->instance_counter < client_data->instance_counter)
+				best = client_data;
+		}
 	}
 
-	return NULL;
+	return best ? best->client : NULL;
 }
 
-static NMDHCPClient *
-get_client_for_iface (NMDHCPManager *manager,
-                      const char *iface,
-                      gboolean ip6)
+static gboolean
+dispose_old_clients (NMDHCPManager *self,
+                     const char *iface,
+                     gboolean ip6)
 {
 	NMDHCPManagerPrivate *priv;
 	GHashTableIter iter;
 	gpointer value;
+	gboolean has_zombie_clients = FALSE;
+	struct client_data *concurrent_client = NULL;
 
-	g_return_val_if_fail (NM_IS_DHCP_MANAGER (manager), NULL);
-	g_return_val_if_fail (iface, NULL);
+	g_return_val_if_fail (NM_IS_DHCP_MANAGER (self), FALSE);
+	g_return_val_if_fail (iface, FALSE);
 
-	priv = NM_DHCP_MANAGER_GET_PRIVATE (manager);
+	priv = NM_DHCP_MANAGER_GET_PRIVATE (self);
+
+	ip6 = !!ip6;
 
 	g_hash_table_iter_init (&iter, priv->clients);
 	while (g_hash_table_iter_next (&iter, NULL, &value)) {
-		NMDHCPClient *candidate = NM_DHCP_CLIENT (value);
+		struct client_data *client_data = value;
 
-		if (   !strcmp (iface, nm_dhcp_client_get_iface (candidate))
-		    && (nm_dhcp_client_get_ipv6 (candidate) == ip6))
-			return candidate;
+		if (nm_dhcp_client_is_reaped (client_data->client)) {
+			/* reaped clients are only in the list so that we are able to
+			 * react on delated events. They do not block a new client. */
+			continue;
+		}
+
+		if (   strcmp (iface, client_data->iface) == 0
+		    && client_data->ipv6  != ip6) {
+		    if (client_data->owns_client) {
+				/* we expect at most one concurrent client that is still active (owned) */
+				g_assert (!concurrent_client);
+				concurrent_client = client_data;
+			} else {
+				/* we expect at most one concurrent client that is waiting to be reaped (not owned) */
+				g_assert (!has_zombie_clients);
+				has_zombie_clients = TRUE;
+			}
+		}
+	}
+	if (concurrent_client) {
+		if (concurrent_client->started) {
+			NMDHCPClient *client = concurrent_client->client;
+
+			nm_dhcp_client_stop (client, FALSE);
+			remove_client (self, client, FALSE);
+
+			has_zombie_clients = has_zombie_clients ||
+			                     !!g_hash_table_lookup (priv->clients, client);
+		} else
+			remove_client (self, concurrent_client->client, TRUE);
 	}
 
-	return NULL;
+	return has_zombie_clients;
 }
 
 static char *
@@ -215,7 +294,7 @@ nm_dhcp_manager_handle_event (DBusGProxy *proxy,
 	}
 
 	reason = get_option (options, "reason");
-	client = get_client_for_pid (manager, (GPid) pid);
+	client = get_client_for_pid (manager, (GPid) pid, iface);
 	if (client == NULL) {
 		if (reason && g_ascii_strcasecmp (reason, "RELEASE") == 0) {
 			/* This happens regularly, when the dhcp client gets killed and we receive its last message.
@@ -237,7 +316,9 @@ nm_dhcp_manager_handle_event (DBusGProxy *proxy,
 		goto out;
 	}
 
+	g_object_ref (client);
 	nm_dhcp_client_new_options (client, options, reason);
+	g_object_unref (client);
 
 out:
 	g_free (iface);
@@ -342,6 +423,28 @@ get_client_type (const char *client, GError **error)
 	return G_TYPE_INVALID;
 }
 
+static void
+client_data_free_params (struct client_data *client_data)
+{
+	g_clear_pointer (&client_data->dhcp_client_id, g_free);
+	g_clear_pointer (&client_data->hostname, g_free);
+
+	if (client_data->dhcp_anycast_addr) {
+		g_byte_array_free (client_data->dhcp_anycast_addr, TRUE);
+		client_data->dhcp_anycast_addr = NULL;
+	}
+}
+
+static void
+client_data_free (void *data)
+{
+	struct client_data *client_data = data;
+
+	client_data_free_params (client_data);
+	g_free (client_data->iface);
+	g_free (data);
+}
+
 NMDHCPManager *
 nm_dhcp_manager_get (void)
 {
@@ -372,8 +475,7 @@ nm_dhcp_manager_get (void)
 
 	priv->clients = g_hash_table_new_full (g_direct_hash, g_direct_equal,
 	                                       NULL,
-	                                       (GDestroyNotify) g_object_unref);
-	g_assert (priv->clients);
+	                                       client_data_free);
 
 	priv->dbus_mgr = nm_dbus_manager_get ();
 
@@ -407,44 +509,156 @@ nm_dhcp_manager_get (void)
 	return singleton;
 }
 
-#define REMOVE_ID_TAG "remove-id"
-#define TIMEOUT_ID_TAG "timeout-id"
+static gboolean
+start_client (NMDHCPManager *self,
+              struct client_data *client_data,
+              const char *dhcp_client_id,
+              GByteArray *dhcp_anycast_addr,
+              const char *hostname,
+              gboolean info_only)
+{
+	gboolean success;
+	NMDHCPClient *client = client_data->client;
+
+	if (client_data->ipv6)
+		success = nm_dhcp_client_start_ip6 (client, dhcp_anycast_addr, hostname, info_only);
+	else
+		success = nm_dhcp_client_start_ip4 (client, dhcp_client_id, dhcp_anycast_addr, hostname);
+
+	if (!success) {
+		nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: failed to start", client);
+		remove_client (self, client, TRUE);
+	} else {
+		nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: started", client);
+		client_data->started = TRUE;
+	}
+
+	return success;
+}
 
 static void
-remove_client (NMDHCPManager *self, NMDHCPClient *client)
+dispose_client_cb (gpointer data, GObject *where_the_object_was)
+{
+	GHashTableIter iter;
+	gpointer value;
+	NMDHCPManager *self = data;
+	NMDHCPManagerPrivate *priv = NM_DHCP_MANAGER_GET_PRIVATE (self);
+	struct client_data *client_data;
+	gboolean client_started = FALSE;
+	gboolean success;
+
+	client_data = g_hash_table_lookup (priv->clients, where_the_object_was);
+
+	g_return_if_fail (client_data);
+	g_return_if_fail (!client_data->owns_client);
+
+	nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: remove zombie", client_data->client);
+
+	/* We are about to remove a zombie client. This might mean we have
+	 * to start a queued client... look for a waiting client and start it... */
+	g_hash_table_iter_init (&iter, priv->clients);
+	while (g_hash_table_iter_next (&iter, NULL, &value)) {
+		struct client_data *client_data2 = value;
+
+		if (   client_data2 == client_data
+		    || client_data->started
+		    || client_data->ipv6 != client_data2->ipv6
+		    || g_strcmp0 (client_data->iface, client_data2->iface) != 0)
+			continue;
+
+		/* we only expect one client ready to be started. */
+		g_assert (!client_started); (void)client_started;
+		client_started = TRUE;
+
+		success = start_client (self, client_data2,
+		                        client_data2->dhcp_client_id,
+		                        client_data2->dhcp_anycast_addr,
+		                        client_data2->hostname,
+		                        client_data2->info_only);
+
+		if (success) {
+			/* we don't need the start parameters anymore. Clear them. */
+			client_data_free_params (client_data2);
+		}
+	}
+
+	g_hash_table_remove (priv->clients, where_the_object_was);
+}
+
+static void
+remove_client (NMDHCPManager *self, NMDHCPClient *client, gboolean force)
 {
 	NMDHCPManagerPrivate *priv = NM_DHCP_MANAGER_GET_PRIVATE (self);
-	guint id;
+	struct client_data *client_data;
+	gboolean owns_client;
 
-	id = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (client), REMOVE_ID_TAG));
-	if (id)
-		g_signal_handler_disconnect (client, id);
+	client_data = g_hash_table_lookup (priv->clients, client);
 
-	id = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (client), TIMEOUT_ID_TAG));
-	if (id)
-		g_signal_handler_disconnect (client, id);
+	g_return_if_fail (client_data);
+	g_return_if_fail (client_data->client == client);
+
+	owns_client = client_data->owns_client;
+	if (owns_client) {
+		g_signal_handler_disconnect (client, client_data->remove_id);
+		g_signal_handler_disconnect (client, client_data->timeout_id);
+		client_data->remove_id = 0;
+		client_data->timeout_id = 0;
+		client_data->owns_client = FALSE;
+	}
 
 	/* Stopping the client is left up to the controlling device
 	 * explicitly since we may want to quit NetworkManager but not terminate
 	 * the DHCP client.
 	 */
 
-	g_hash_table_remove (priv->clients, client);
+	if (force) {
+		if (!owns_client)
+			g_object_weak_unref (G_OBJECT (client), dispose_client_cb, self);
+		g_hash_table_remove (priv->clients, client);
+		nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: removed", client);
+		if (owns_client)
+			g_object_unref (client);
+	} else if (owns_client) {
+		g_object_weak_ref (G_OBJECT (client), dispose_client_cb, self);
+		g_object_unref (client);
+		if (nm_logging_enabled (LOGL_DEBUG, LOGD_DHCP)) {
+			if (g_hash_table_lookup (priv->clients, client))
+				nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: removed but has zombie reference", client);
+			else
+				nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: removed without zombie reference", client);
+		}
+	}
 }
 
 static void
+remove_client_cb (NMDHCPManager *self, NMDHCPClient *client)
+{
+	remove_client (self, client, FALSE);
+}
+
+static struct client_data *
 add_client (NMDHCPManager *self, NMDHCPClient *client)
 {
 	NMDHCPManagerPrivate *priv = NM_DHCP_MANAGER_GET_PRIVATE (self);
-	guint id;
+	struct client_data *client_data;
+	static guint global_instance_counter = 0;
 
-	id = g_signal_connect_swapped (client, NM_DHCP_CLIENT_SIGNAL_REMOVE, G_CALLBACK (remove_client), self);
-	g_object_set_data (G_OBJECT (client), REMOVE_ID_TAG, GUINT_TO_POINTER (id));
+	client_data = g_new0 (struct client_data, 1);
 
-	id = g_signal_connect_swapped (client, NM_DHCP_CLIENT_SIGNAL_TIMEOUT, G_CALLBACK (remove_client), self);
-	g_object_set_data (G_OBJECT (client), TIMEOUT_ID_TAG, GUINT_TO_POINTER (id));
+	client_data->client = g_object_ref (client);
+	client_data->owns_client = TRUE;
+	client_data->remove_id = g_signal_connect_swapped (client, NM_DHCP_CLIENT_SIGNAL_REMOVE, G_CALLBACK (remove_client_cb), self);
+	client_data->timeout_id = g_signal_connect_swapped (client, NM_DHCP_CLIENT_SIGNAL_TIMEOUT, G_CALLBACK (remove_client_cb), self);
+	client_data->ipv6 = !!nm_dhcp_client_get_ipv6 (client);
+	client_data->iface = g_strdup (nm_dhcp_client_get_iface (client));
+	client_data->instance_counter = ++global_instance_counter;
 
-	g_hash_table_insert (priv->clients, client, g_object_ref (client));
+	nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: add IPv%c, %s",
+	            client, client_data->ipv6 ? '6' : '4', client_data->iface);
+
+	g_hash_table_insert (priv->clients, client, client_data);
+
+	return client_data;
 }
 
 static NMDHCPClient *
@@ -461,7 +675,8 @@ client_start (NMDHCPManager *self,
 {
 	NMDHCPManagerPrivate *priv;
 	NMDHCPClient *client;
-	gboolean success = FALSE;
+	gboolean has_zombie_clients = FALSE;
+	struct client_data *client_data;
 
 	g_return_val_if_fail (self, NULL);
 	g_return_val_if_fail (NM_IS_DHCP_MANAGER (self), NULL);
@@ -474,11 +689,7 @@ client_start (NMDHCPManager *self,
 	g_return_val_if_fail (priv->client_type != 0, NULL);
 
 	/* Kill any old client instance */
-	client = get_client_for_iface (self, iface, ipv6);
-	if (client) {
-		nm_dhcp_client_stop (client, FALSE);
-		remove_client (self, client);
-	}
+	has_zombie_clients = dispose_old_clients (self, iface, ipv6);
 
 	/* And make a new one */
 	client = g_object_new (priv->client_type,
@@ -489,17 +700,22 @@ client_start (NMDHCPManager *self,
 	                       NM_DHCP_CLIENT_TIMEOUT, timeout ? timeout : DHCP_TIMEOUT,
 	                       NULL);
 	g_return_val_if_fail (client != NULL, NULL);
-	add_client (self, client);
+	client_data = add_client (self, client);
 
-	if (ipv6)
-		success = nm_dhcp_client_start_ip6 (client, dhcp_anycast_addr, hostname, info_only);
-	else
-		success = nm_dhcp_client_start_ip4 (client, dhcp_client_id, dhcp_anycast_addr, hostname);
-
-	if (!success) {
-		remove_client (self, client);
-		g_object_unref (client);
-		client = NULL;
+	if (!has_zombie_clients) {
+		if (!start_client (self, client_data, dhcp_client_id, dhcp_anycast_addr, hostname, info_only)) {
+			g_object_unref (client);
+			client = NULL;
+		}
+	} else {
+		client_data->dhcp_client_id = g_strdup (dhcp_client_id);
+		if (dhcp_anycast_addr) {
+			client_data->dhcp_anycast_addr = g_byte_array_new ();
+			g_byte_array_append (client_data->dhcp_anycast_addr, dhcp_anycast_addr->data, dhcp_anycast_addr->len);
+		}
+		client_data->hostname = g_strdup (hostname);
+		client_data->info_only = info_only;
+		nm_log_dbg (LOGD_DHCP, "DHCP manager: client %p: not start yet, because there are concurrent clients", client);
 	}
 
 	return client;
@@ -674,7 +890,7 @@ dispose (GObject *object)
 	if (priv->clients) {
 		values = g_hash_table_get_values (priv->clients);
 		for (iter = values; iter; iter = g_list_next (iter))
-			remove_client (NM_DHCP_MANAGER (object), NM_DHCP_CLIENT (iter->data));
+			remove_client (NM_DHCP_MANAGER (object), NM_DHCP_CLIENT (iter->data), TRUE);
 		g_list_free (values);
 	}
 

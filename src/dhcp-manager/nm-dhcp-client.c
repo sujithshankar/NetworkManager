@@ -44,7 +44,8 @@ typedef struct {
 
 	guchar       state;
 	GPid         pid;
-	gboolean     dead;
+	gboolean     reaped;
+	gboolean     stopped;
 	guint        timeout_id;
 	guint        watch_id;
 	guint32      remove_id;
@@ -84,6 +85,14 @@ nm_dhcp_client_get_pid (NMDHCPClient *self)
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), -1);
 
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->pid;
+}
+
+gboolean
+nm_dhcp_client_is_reaped (NMDHCPClient *self)
+{
+	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), TRUE);
+
+	return NM_DHCP_CLIENT_GET_PRIVATE (self)->reaped;
 }
 
 const char *
@@ -272,7 +281,7 @@ daemon_watch_cb (GPid pid, gint status, gpointer user_data)
 
 	watch_cleanup (self);
 	timeout_cleanup (self);
-	priv->dead = TRUE;
+	priv->reaped = TRUE;
 
 	dhcp_client_set_state (self, new_state, TRUE, FALSE);
 }
@@ -538,9 +547,9 @@ nm_dhcp_client_stop (NMDHCPClient *self, gboolean release)
 	priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
 
 	/* Kill the DHCP client */
-	if (!priv->dead) {
+	if (!priv->stopped) {
+		priv->stopped = TRUE;
 		NM_DHCP_CLIENT_GET_CLASS (self)->stop (self, release, priv->duid);
-		priv->dead = TRUE;
 
 		nm_log_info (LOGD_DHCP, "(%s): canceled DHCP transaction, DHCP client pid %d",
 		             priv->iface, priv->pid);
