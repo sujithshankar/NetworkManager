@@ -362,7 +362,6 @@ static void nm_device_slave_notify_enslave (NMDevice *dev, gboolean success);
 static void nm_device_slave_notify_release (NMDevice *dev, NMDeviceStateReason reason);
 
 static void addrconf6_start_with_link_ready (NMDevice *self);
-static gboolean dhcp6_start_with_link_ready (NMDevice *self);
 
 static const char const *platform_ip_signals[] = {
 	NM_PLATFORM_IP4_ADDRESS_ADDED,
@@ -3176,14 +3175,20 @@ dhcp6_timeout (NMDHCPClient *client, gpointer user_data)
 	}
 }
 
-static gboolean
-dhcp6_start (NMDevice *self)
+static NMActStageReturn
+dhcp6_start (NMDevice *self,
+             NMConnection *connection,
+             guint32 dhcp_opt,
+             NMDeviceStateReason *reason)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
-	NMConnection *connection;
+	NMActStageReturn ret = NM_ACT_STAGE_RETURN_FAILURE;
+	GByteArray *tmp = NULL;
 
-	connection = nm_device_get_connection (self);
-	g_assert (connection);
+	if (!connection) {
+		connection = nm_device_get_connection (self);
+		g_assert (connection);
+	}
 
 	/* Begin a DHCP transaction on the interface */
 
@@ -3192,34 +3197,16 @@ dhcp6_start (NMDevice *self)
 		g_object_unref (priv->dhcp6_config);
 	priv->dhcp6_config = nm_dhcp6_config_new ();
 
+	g_warn_if_fail (priv->dhcp6_ip6_config == NULL);
 	if (priv->dhcp6_ip6_config) {
 		g_object_unref (priv->dhcp6_ip6_config);
 		priv->dhcp6_ip6_config = NULL;
 	}
 
-	/* ensure link local is ready... */
-	ret = linklocal6_start (self);
-	if (ret == NM_ACT_STAGE_RETURN_SUCCESS)
-		return dhcp6_start_with_link_ready (self);
-	else
-		g_return_val_if_fail (ret == NM_ACT_STAGE_RETURN_POSTPONE, TRUE);
-
-	return TRUE;
-}
-
-static gboolean
-dhcp6_start_with_link_ready (NMDevice *self)
-{
-	GByteArray *tmp = NULL;
-	gboolean info_only = FALSE;
-
 	if (priv->hw_addr_len) {
 		tmp = g_byte_array_sized_new (priv->hw_addr_len);
 		g_byte_array_append (tmp, priv->hw_addr, priv->hw_addr_len);
 	}
-
-	if (priv->dhcp6_mode == NM_RDISC_DHCP_LEVEL_OTHERCONF)
-		info_only = TRUE;
 
 	priv->dhcp6_client = nm_dhcp_manager_start_ip6 (priv->dhcp_manager,
 	                                                nm_device_get_ip_iface (self),
@@ -3228,22 +3215,28 @@ dhcp6_start_with_link_ready (NMDevice *self)
 	                                                nm_connection_get_setting_ip6_config (connection),
 	                                                priv->dhcp_timeout,
 	                                                priv->dhcp_anycast_address,
-	                                                info_only);
+	                                                (dhcp_opt == NM_RDISC_DHCP_LEVEL_OTHERCONF) ? TRUE : FALSE);
 	if (tmp)
 		g_byte_array_free (tmp, TRUE);
 
-	if (!priv->dhcp6_client)
-		return FALSE;
+	if (priv->dhcp6_client) {
+		priv->dhcp6_state_sigid = g_signal_connect (priv->dhcp6_client,
+		                                            NM_DHCP_CLIENT_SIGNAL_STATE_CHANGED,
+		                                            G_CALLBACK (dhcp6_state_changed),
+		                                            self);
+		priv->dhcp6_timeout_sigid = g_signal_connect (priv->dhcp6_client,
+		                                              NM_DHCP_CLIENT_SIGNAL_TIMEOUT,
+		                                              G_CALLBACK (dhcp6_timeout),
+		                                              self);
 
-	priv->dhcp6_state_sigid = g_signal_connect (priv->dhcp6_client,
-	                                            NM_DHCP_CLIENT_SIGNAL_STATE_CHANGED,
-	                                            G_CALLBACK (dhcp6_state_changed),
-	                                            self);
-	priv->dhcp6_timeout_sigid = g_signal_connect (priv->dhcp6_client,
-	                                              NM_DHCP_CLIENT_SIGNAL_TIMEOUT,
-	                                              G_CALLBACK (dhcp6_timeout),
-	                                              self);
-	return TRUE;
+		/* DHCP devices will be notified by the DHCP manager when stuff happens */
+		ret = NM_ACT_STAGE_RETURN_POSTPONE;
+	} else {
+		*reason = NM_DEVICE_STATE_REASON_DHCP_START_FAILED;
+		ret = NM_ACT_STAGE_RETURN_FAILURE;
+	}
+
+	return ret;
 }
 
 gboolean
@@ -3339,13 +3332,10 @@ linklocal6_complete (NMDevice *self)
 
 	if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_AUTO) == 0)
 		addrconf6_start_with_link_ready (self);
-	else if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_DHCP) == 0) {
-		if (!dhcp6_start_with_link_ready (self))
-			dhcp6_fail (self, FALSE);
-	} else if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_LINK_LOCAL) == 0)
+	else if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_LINK_LOCAL) == 0)
 		nm_device_activate_schedule_ip6_config_result (self);
 	else
-		g_return_if_reached ();
+		g_return_if_fail (FALSE);
 }
 
 static NMActStageReturn
@@ -3427,7 +3417,9 @@ static void
 rdisc_config_changed (NMRDisc *rdisc, NMRDiscConfigMap changed, NMDevice *device)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (device);
+	NMConnection *connection;
 	int i;
+	NMDeviceStateReason reason;
 	static int system_support = -1;
 	guint ifa_flags = 0x00;
 
@@ -3453,6 +3445,8 @@ rdisc_config_changed (NMRDisc *rdisc, NMRDiscConfigMap changed, NMDevice *device
 	}
 
 	g_return_if_fail (priv->act_request);
+	connection = nm_device_get_connection (device);
+	g_assert (connection);
 
 	if (!priv->ac_ip6_config)
 		priv->ac_ip6_config = nm_ip6_config_new ();
@@ -3552,10 +3546,14 @@ rdisc_config_changed (NMRDisc *rdisc, NMRDiscConfigMap changed, NMDevice *device
 			             "Activation (%s) Stage 3 of 5 (IP Configure Start) starting DHCPv6"
 			             " as requested by IPv6 router...",
 			             priv->iface);
-			if (!dhcp6_start (device)) {
-				nm_device_state_changed (device,
-				                         NM_DEVICE_STATE_FAILED,
-				                         NM_DEVICE_STATE_REASON_DHCP_START_FAILED);
+			switch (dhcp6_start (device, connection, priv->dhcp6_mode, &reason)) {
+			case NM_ACT_STAGE_RETURN_SUCCESS:
+				g_warn_if_reached ();
+				break;
+			case NM_ACT_STAGE_RETURN_POSTPONE:
+				return;
+			default:
+				nm_device_state_changed (device, NM_DEVICE_STATE_FAILED, reason);
 				return;
 			}
 		}
@@ -3803,11 +3801,7 @@ act_stage3_ip6_config_start (NMDevice *self,
 		}
 	} else if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_DHCP) == 0) {
 		priv->dhcp6_mode = NM_RDISC_DHCP_LEVEL_MANAGED;
-		if (!dhcp6_start (self)) {
-			*reason = NM_DEVICE_STATE_REASON_DHCP_START_FAILED;
-			ret = NM_ACT_STAGE_RETURN_FAILURE;
-		} else
-			ret = NM_ACT_STAGE_RETURN_POSTPONE;
+		ret = dhcp6_start (self, connection, priv->dhcp6_mode, reason);
 	} else if (strcmp (method, NM_SETTING_IP6_CONFIG_METHOD_MANUAL) == 0) {
 		/* New blank config */
 		*out_config = nm_ip6_config_new ();
