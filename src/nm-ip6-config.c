@@ -172,8 +172,137 @@ routes_are_duplicate (const NMPlatformIP6Route *a, const NMPlatformIP6Route *b, 
 	       (!consider_gateway_and_metric || (IN6_ARE_ADDR_EQUAL (&a->gateway, &b->gateway) && a->metric == b->metric));
 }
 
+static gint
+_addresses_sort_cmp_get_prio (const struct in6_addr *addr)
+{
+	if (IN6_IS_ADDR_UNSPECIFIED (addr))
+		return 0;
+	if (IN6_IS_ADDR_LOOPBACK (addr))
+		return 1;
+	if (IN6_IS_ADDR_LINKLOCAL (addr))
+		return 2;
+	if (IN6_IS_ADDR_SITELOCAL (addr))
+		return 3;
+	if (IN6_IS_ADDR_V4MAPPED (addr))
+		return 4;
+	if (IN6_IS_ADDR_V4COMPAT (addr))
+		return 5;
+	return 6;
+}
+
+static gboolean
+_addresses_sort_cmp_is_slaac (const NMPlatformIP6Address *addr)
+{
+	if (addr->source == NM_PLATFORM_SOURCE_RDISC)
+		return TRUE;
+	if (addr->source == NM_PLATFORM_SOURCE_KERNEL)
+		return !!(addr->flags & (IFA_F_MANAGETEMPADDR | IFA_F_TEMPORARY));
+
+	return FALSE;
+}
+
+static gint
+_addresses_sort_cmp (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+	gint p1, p2;
+	gint slaac1, slaac2;
+	gboolean perm1, perm2, tent1, tent2;
+	const NMPlatformIP6Address *a1 = a, *a2 = b;
+	const NMSettingIP6ConfigPrivacy *use_temporary = user_data;
+
+	/* sort the addresses baded on their source. */
+	if (a1->source != a2->source) {
+		/* SLAAC temporary addresses have NM_PLATFORM_SOURCE_KERNEL, so we ignore
+		 * the source if both addresses are detected as being created from SLAAC. */
+		if (!_addresses_sort_cmp_is_slaac (a1) && !_addresses_sort_cmp_is_slaac (a2))
+			return a1->source > a2->source ? -1 : 1;
+	}
+
+	/* First we compare by address type. For example link local will always
+	 * be sorted *after* site local or global. */
+	p1 = _addresses_sort_cmp_get_prio (&a1->address);
+	p2 = _addresses_sort_cmp_get_prio (&a2->address);
+	if (p1 != p2)
+		return p1 > p2 ? -1 : 1;
+
+	/* sort tentative addresses after non-tentative. */
+	tent1 = (a1->flags & IFA_F_TENTATIVE);
+	tent2 = (a2->flags & IFA_F_TENTATIVE);
+	if (tent1 != tent2)
+		return tent1 ? 1 : -1;
+
+	/* addresses that are not from SLAAC, are higher priority */
+	slaac1 = (a1->flags & (IFA_F_MANAGETEMPADDR | IFA_F_TEMPORARY));
+	slaac2 = (a2->flags & (IFA_F_MANAGETEMPADDR | IFA_F_TEMPORARY));
+	if ((!!slaac1) != (!!slaac2))
+		return slaac1 ? 1 : -1;
+
+	if (slaac1 && slaac1 != slaac2) {
+		/* both addresses are SLAAC, but one is public, one private. */
+
+		if (*use_temporary == NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_TEMP_ADDR) {
+			/* private address has higher priority */
+			return slaac1 & IFA_F_TEMPORARY ? -1 : 1;
+		}
+
+		/* permanent address has higher priority */
+		return slaac1 & IFA_F_MANAGETEMPADDR ? -1 : 1;
+	}
+
+	/* sort permanent addresses before non-permanent. */
+	perm1 = (a1->flags & IFA_F_PERMANENT);
+	perm2 = (a2->flags & IFA_F_PERMANENT);
+	if (perm1 != perm2)
+		return perm1 ? -1 : 1;
+
+	/* sort addresses lexically */
+	return memcmp (&a1->address, &a2->address, sizeof (a2->address));
+}
+
+static void
+_addresses_sort (NMIP6Config *self, NMSettingIP6ConfigPrivacy use_temporary, gboolean *out_changed)
+{
+	NMIP6ConfigPrivate *priv;
+	size_t data_len = 0;
+	char *data_pre = NULL;
+
+	g_return_if_fail (NM_IS_IP6_CONFIG (self));
+
+	priv = NM_IP6_CONFIG_GET_PRIVATE (self);
+	if (priv->addresses->len <= 1) {
+		if (out_changed)
+			*out_changed = FALSE;
+		return;
+	}
+
+	if (out_changed) {
+		data_len = priv->addresses->len * g_array_get_element_size (priv->addresses);
+		data_pre = g_new (char, data_len);
+		memcpy (data_pre, priv->addresses->data, data_len);
+	}
+
+	g_array_sort_with_data (priv->addresses, _addresses_sort_cmp, &use_temporary);
+
+	if (out_changed) {
+		*out_changed = memcmp (data_pre, priv->addresses->data, data_len) != 0;
+		g_free (data_pre);
+	}
+}
+
+gboolean
+nm_ip6_config_addresses_sort (NMIP6Config *self, NMSettingIP6ConfigPrivacy use_temporary)
+{
+	gboolean changed;
+
+	_addresses_sort (self, use_temporary, &changed);
+
+	if (changed)
+		_NOTIFY (self, PROP_ADDRESSES);
+	return changed;
+}
+
 NMIP6Config *
-nm_ip6_config_capture (int ifindex, gboolean capture_resolv_conf)
+nm_ip6_config_capture (int ifindex, gboolean capture_resolv_conf, NMSettingIP6ConfigPrivacy use_temporary)
 {
 	NMIP6Config *config;
 	NMIP6ConfigPrivate *priv;
@@ -181,6 +310,7 @@ nm_ip6_config_capture (int ifindex, gboolean capture_resolv_conf)
 	guint lowest_metric = G_MAXUINT;
 	struct in6_addr old_gateway = IN6ADDR_ANY_INIT;
 	gboolean has_gateway = FALSE;
+	gboolean notify_nameservers = FALSE;
 
 	/* Slaves have no IP configuration */
 	if (nm_platform_link_get_master (ifindex) > 0)
@@ -231,12 +361,14 @@ nm_ip6_config_capture (int ifindex, gboolean capture_resolv_conf)
 	/* If the interface has the default route, and has IPv6 addresses, capture
 	 * nameservers from /etc/resolv.conf.
 	 */
-	if (priv->addresses->len && has_gateway && capture_resolv_conf) {
-		if (nm_ip6_config_capture_resolv_conf (priv->nameservers, NULL))
-			_NOTIFY (config, PROP_NAMESERVERS);
-	}
+	if (priv->addresses->len && has_gateway && capture_resolv_conf)
+		notify_nameservers = nm_ip6_config_capture_resolv_conf (priv->nameservers, NULL);
+
+	_addresses_sort (config, use_temporary, NULL);
 
 	/* actually, nobody should be connected to the signal, just to be sure, notify */
+	if (notify_nameservers)
+		_NOTIFY (config, PROP_NAMESERVERS);
 	_NOTIFY (config, PROP_ADDRESSES);
 	_NOTIFY (config, PROP_ROUTES);
 	if (!IN6_ARE_ADDR_EQUAL (&priv->gateway, &old_gateway))

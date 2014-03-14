@@ -231,6 +231,73 @@ test_add_route_with_source (void)
 	g_object_unref (a);
 }
 
+static void
+test_nm_ip6_config_addresses_sort_test (NMIP6Config *config, NMSettingIP6ConfigPrivacy use_tempaddr, int repeat)
+{
+	int addr_count = nm_ip6_config_get_num_addresses (config);
+	int i;
+	NMIP6Config *copy = nm_ip6_config_new ();
+	NMIP6Config *copy2 = nm_ip6_config_new ();
+	int *idx = NULL;
+
+	while (repeat-- > 0) {
+		nm_ip6_config_replace (copy, config, NULL);
+
+		nm_ip6_config_reset_addresses (copy);
+
+		if (addr_count > 0) {
+			idx = g_new0 (int, addr_count);
+
+			for (i = 0; i < addr_count; i++)
+				idx[i] = i;
+			for (i = 0; i < addr_count; i++) {
+				int j = g_rand_int_range (nmtst_get_rand0 (), i, addr_count);
+				int tmp;
+
+				tmp = idx[i];
+				idx[i] = idx[j];
+				idx[j] = tmp;
+			}
+
+			for (i = 0; i < addr_count; i++)
+				nm_ip6_config_add_address (copy, nm_ip6_config_get_address (config, idx[i]));
+
+			g_free (idx);
+		}
+
+		nm_ip6_config_addresses_sort (copy, use_tempaddr);
+
+		/* check equality using nm_ip6_config_equal() */
+		g_assert (nm_ip6_config_equal (copy, config));
+
+		/* also check equality using nm_ip6_config_replace() */
+		nm_ip6_config_replace (copy2, config, NULL);
+		g_assert (nm_ip6_config_replace (copy2, copy, NULL) == FALSE);
+	}
+
+	g_object_unref (copy);
+	g_object_unref (copy2);
+}
+
+static void
+test_nm_ip6_config_addresses_sort (void)
+{
+
+	NMIP6Config *config = build_test_config ();
+
+
+#define ADDR_ADD(...) nm_ip6_config_add_address (config, nmtst_platform_ip6_address_full (__VA_ARGS__))
+
+	nm_ip6_config_reset_addresses (config);
+	ADDR_ADD("2607:f0d0:1002:51::4", NULL, 64, 0, NM_PLATFORM_SOURCE_USER, 0, 0, 0, 0);
+	ADDR_ADD("2607:f0d0:1002:51::6", NULL, 64, 0, NM_PLATFORM_SOURCE_KERNEL, 0, 0, 0, 0);
+	ADDR_ADD("fe80::208:74ff:feda:625c", NULL, 128, 0, NM_PLATFORM_SOURCE_KERNEL, 0, 0, 0, 0);
+	test_nm_ip6_config_addresses_sort_test (config, NM_SETTING_IP6_CONFIG_PRIVACY_UNKNOWN, 3);
+
+#undef ADDR_ADD
+	g_object_unref (config);
+}
+
 /*******************************************/
 
 NMTST_INIT();
@@ -246,6 +313,7 @@ main (int argc, char **argv)
 	g_test_add_func ("/ip6-config/compare-with-source", test_compare_with_source);
 	g_test_add_func ("/ip6-config/add-address-with-source", test_add_address_with_source);
 	g_test_add_func ("/ip6-config/add-route-with-source", test_add_route_with_source);
+	g_test_add_func ("/ip6-config/test_nm_ip6_config_addresses_sort", test_nm_ip6_config_addresses_sort);
 
 	return g_test_run ();
 }
