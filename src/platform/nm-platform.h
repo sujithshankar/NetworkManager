@@ -18,8 +18,8 @@
  * Copyright (C) 2009 - 2010 Red Hat, Inc.
  */
 
-#ifndef NM_PLATFORM_H
-#define NM_PLATFORM_H
+#ifndef __NM_PLATFORM_H__
+#define __NM_PLATFORM_H__
 
 #include <glib-object.h>
 #include "nm-glib-compat.h"
@@ -525,4 +525,4 @@ put_g_free (void *ptr)
 	g_clear_pointer ((gpointer *) ptr, g_free);
 }
 
-#endif /* NM_PLATFORM_H */
+#endif /* __NM_PLATFORM_H__ */

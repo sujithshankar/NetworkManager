@@ -57,7 +57,8 @@ libnm_util_la_private_headers = \
 	crypto.h			\
 	nm-param-spec-specialized.h	\
 	nm-utils-private.h		\
-	nm-setting-private.h
+	nm-setting-private.h \
+	nm-test-utils.h
 
 libnm_util_la_csources = \
 	crypto.c			\
