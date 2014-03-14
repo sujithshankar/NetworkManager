@@ -29,6 +29,7 @@ noinst_PROGRAMS = \
 	dump \
 	monitor \
 	platform \
+	test-general \
 	test-link-fake \
 	test-link-linux \
 	test-address-fake \
@@ -105,6 +106,13 @@ test_cleanup_linux_CPPFLAGS = \
 	-DKERNEL_HACKS=1
 test_cleanup_linux_LDADD = $(PLATFORM_LDADD)
 
+test_general_SOURCES = \
+	test-general.c
+
+test_general_LDADD = \
+	$(top_builddir)/src/libNetworkManager.la
+
+
 # Unfortunately, we cannot run nm-linux-platform-test as an automatic test
 # program by default, as it requires root access and modifies kernel
 # configuration.
@@ -113,7 +121,7 @@ test_cleanup_linux_LDADD = $(PLATFORM_LDADD)
 # correctly.
 
 @VALGRIND_RULES@
-USERTESTS = test-link-fake test-address-fake test-route-fake test-cleanup-fake
+USERTESTS = test-link-fake test-address-fake test-route-fake test-cleanup-fake test-general
 ROOTTESTS = test-link-linux test-address-linux test-route-linux test-cleanup-linux
 
 # If explicitly enabled, we can run the root tests

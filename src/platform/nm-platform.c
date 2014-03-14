@@ -1955,20 +1955,39 @@ nm_platform_ip4_address_to_string (const NMPlatformIP4Address *address)
 void
 nm_platform_addr_flags2str (int flags, char *buf, size_t size)
 {
-	rtnl_addr_flags2str(flags, buf, size);
+	if (!(flags & (IFA_F_MANAGETEMPADDR | IFA_F_NOPREFIXROUTE)) ||
+	    nm_platform_check_support_libnl_extended_ifa_flags ())
+		rtnl_addr_flags2str (flags, buf, size);
+	else {
+		/* There are two recent flags IFA_F_MANAGETEMPADDR and IFA_F_NOPREFIXROUTE.
+		 * If libnl does not yet support them, add them by hand.
+		 * These two flags were introduced together with the extended ifa_flags
+		 * so check for nm_platform_check_support_libnl_extended_ifa_flags (). */
+		gboolean has_other_unknown_flags = FALSE;
+		size_t len;
 
-	/* There are two recent flags IFA_F_MANAGETEMPADDR and IFA_F_NOPREFIXROUTE.
-	 * If libnl does not yet support them, add them by hand.
-	 * These two flags were introduced together with the extended ifa_flags,
-	 * so, check for that.
-	 */
-	if ((flags & IFA_F_MANAGETEMPADDR) && !nm_platform_check_support_libnl_extended_ifa_flags ()) {
-		strncat (buf, buf[0] ? "," IFA_F_MANAGETEMPADDR_STR : IFA_F_MANAGETEMPADDR_STR,
-		         size - strlen (buf) - 1);
-	}
-	if ((flags & IFA_F_NOPREFIXROUTE) && !nm_platform_check_support_libnl_extended_ifa_flags ()) {
-		strncat (buf, buf[0] ? "," IFA_F_NOPREFIXROUTE_STR : IFA_F_NOPREFIXROUTE_STR,
-		         size - strlen (buf) - 1);
+		/* if there are unknown flags to rtnl_addr_flags2str(), libnl appends ','
+		 * to indicate them. We want to keep this behavior, if there are other
+		 * unknown flags present. */
+
+		rtnl_addr_flags2str (flags & ~(IFA_F_MANAGETEMPADDR | IFA_F_NOPREFIXROUTE), buf, size);
+
+		len = strlen (buf);
+		if (len > 0) {
+			has_other_unknown_flags = (buf[len - 1] == ',');
+			if (!has_other_unknown_flags)
+				g_strlcat (buf, ",", size);
+		}
+
+		if ((flags & (IFA_F_MANAGETEMPADDR | IFA_F_NOPREFIXROUTE)) == (IFA_F_MANAGETEMPADDR | IFA_F_NOPREFIXROUTE))
+			g_strlcat (buf, IFA_F_MANAGETEMPADDR_STR","IFA_F_NOPREFIXROUTE_STR, size);
+		else if (flags & IFA_F_MANAGETEMPADDR)
+			g_strlcat (buf, IFA_F_MANAGETEMPADDR_STR, size);
+		else
+			g_strlcat (buf, IFA_F_NOPREFIXROUTE_STR, size);
+
+		if (has_other_unknown_flags)
+			g_strlcat (buf, ",", size);
 	}
 }
 
@@ -1987,10 +2006,10 @@ nm_platform_addr_flags2str (int flags, char *buf, size_t size)
 const char *
 nm_platform_ip6_address_to_string (const NMPlatformIP6Address *address)
 {
-	char s_flags[256];
+#define S_FLAGS_PREFIX " flags "
+	char s_flags[128];
 	char s_address[INET6_ADDRSTRLEN];
 	char s_peer[INET6_ADDRSTRLEN];
-	char *str_flags;
 	char str_dev[TO_STRING_DEV_BUF_SIZE];
 	char *str_peer = NULL;
 
@@ -2005,18 +2024,19 @@ nm_platform_ip6_address_to_string (const NMPlatformIP6Address *address)
 
 	_to_string_dev (address->ifindex, str_dev, sizeof (str_dev));
 
-	nm_platform_addr_flags2str (address->flags, s_flags, sizeof (s_flags));
-
-	str_flags = s_flags[0] ? g_strconcat (" flags ", s_flags, NULL) : NULL;
+	nm_platform_addr_flags2str (address->flags, &s_flags[STRLEN (S_FLAGS_PREFIX)], sizeof (s_flags) - STRLEN (S_FLAGS_PREFIX));
+	if (s_flags[STRLEN (S_FLAGS_PREFIX)] == '\0')
+		s_flags[0] = '\0';
+	else
+		memcpy (s_flags, S_FLAGS_PREFIX, STRLEN (S_FLAGS_PREFIX));
 
 	g_snprintf (to_string_buffer, sizeof (to_string_buffer), "%s/%d lft %u pref %u time %u%s%s%s src %s",
 	            s_address, address->plen, (guint)address->lifetime, (guint)address->preferred,
 	            (guint)address->timestamp,
 	            str_peer ? str_peer : "",
 	            str_dev,
-	            str_flags ? str_flags : "",
+	            s_flags,
 	            source_to_string (address->source));
-	g_free (str_flags);
 	g_free (str_peer);
 	return to_string_buffer;
 }
