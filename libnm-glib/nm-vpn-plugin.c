@@ -18,10 +18,11 @@
  * Boston, MA 02110-1301 USA.
  *
  * Copyright (C) 2007 - 2008 Novell, Inc.
- * Copyright (C) 2007 - 2008 Red Hat, Inc.
+ * Copyright (C) 2007 - 2014 Red Hat, Inc.
  */
 
 #include <signal.h>
+#include <gio/gio.h>
 #include "nm-glib-compat.h"
 #include "nm-vpn-plugin.h"
 #include "nm-vpn-enum-types.h"
@@ -70,7 +71,12 @@ static gboolean impl_vpn_plugin_set_failure (NMVPNPlugin *plugin,
 
 #define NM_VPN_PLUGIN_QUIT_TIMER    20
 
-G_DEFINE_ABSTRACT_TYPE (NMVPNPlugin, nm_vpn_plugin, G_TYPE_OBJECT)
+static void nm_vpn_plugin_initable_interface_init (GInitableIface *iface, gpointer iface_data);
+
+G_DEFINE_ABSTRACT_TYPE_WITH_CODE (NMVPNPlugin, nm_vpn_plugin, G_TYPE_OBJECT,
+                                  G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
+                                                         nm_vpn_plugin_initable_interface_init)
+                                  )
 
 typedef struct {
 	NMVPNServiceState state;
@@ -731,75 +737,57 @@ nm_vpn_plugin_init (NMVPNPlugin *plugin)
 {
 	active_plugins = g_slist_append (active_plugins, plugin);
 	g_object_weak_ref (G_OBJECT (plugin),
-				    one_plugin_destroyed,
-				    NULL);
+	                   one_plugin_destroyed,
+	                   NULL);
 }
 
-static GObject *
-constructor (GType type,
-             guint n_construct_params,
-             GObjectConstructParam *construct_params)
+static gboolean
+initable_init (GInitable *initable, GCancellable *cancellable, GError **error)
 {
-	GObject *object;
-	NMVPNPlugin *plugin;
+	NMVPNPlugin *plugin = NM_VPN_PLUGIN (initable);
 	NMVPNPluginPrivate *priv;
 	DBusGConnection *connection;
 	DBusGProxy *proxy;
 	guint request_name_result;
-	GError *err = NULL;
 
-	object = G_OBJECT_CLASS (nm_vpn_plugin_parent_class)->constructor (type,
-														  n_construct_params,
-														  construct_params);
-	if (!object)
-		return NULL;
+	priv = NM_VPN_PLUGIN_GET_PRIVATE (plugin);
+	if (!priv->dbus_service_name) {
+		g_set_error_literal (error, NM_VPN_PLUGIN_ERROR, NM_VPN_PLUGIN_ERROR_GENERAL,
+		                     "Failed to initialize VPN plugin: D-Bus service name is missing");
+		return FALSE;
+	}
 
-	priv = NM_VPN_PLUGIN_GET_PRIVATE (object);
-	if (!priv->dbus_service_name)
-		goto err;
-
-	connection = dbus_g_bus_get (DBUS_BUS_SYSTEM, &err);
-	if (!connection)
-		goto err;
+	connection = dbus_g_bus_get (DBUS_BUS_SYSTEM, error);
+	if (!connection) {
+		g_prefix_error (error, "Failed to initialize VPN plugin (D-Bus): ");
+		return FALSE;
+	}
 
 	proxy = dbus_g_proxy_new_for_name (connection,
 	                                   "org.freedesktop.DBus",
 	                                   "/org/freedesktop/DBus",
 	                                   "org.freedesktop.DBus");
 
-	if (!dbus_g_proxy_call (proxy, "RequestName", &err,
+	if (!dbus_g_proxy_call (proxy, "RequestName", error,
 	                        G_TYPE_STRING, priv->dbus_service_name,
 	                        G_TYPE_UINT, 0,
 	                        G_TYPE_INVALID,
 	                        G_TYPE_UINT, &request_name_result,
 	                        G_TYPE_INVALID)) {
 		g_object_unref (proxy);
-		goto err;
+		g_prefix_error (error, "Failed to initialize VPN plugin; 'RequestName' call failure: ");
+		return FALSE;
 	}
-
 	g_object_unref (proxy);
 
 	dbus_g_connection_register_g_object (connection,
 	                                     NM_VPN_DBUS_PLUGIN_PATH,
-	                                     object);
-
-	plugin = NM_VPN_PLUGIN (object);
+	                                     G_OBJECT (plugin));
 
 	nm_vpn_plugin_set_connection (plugin, connection);
 	nm_vpn_plugin_set_state (plugin, NM_VPN_SERVICE_STATE_INIT);
 
-	return object;
-
- err:
-	if (err) {
-		g_warning ("Failed to initialize VPN plugin: %s", err->message);
-		g_error_free (err);
-	}
-
-	if (object)
-		g_object_unref (object);
-
-	return NULL;
+	return TRUE;
 }
 
 static void
@@ -946,7 +934,6 @@ nm_vpn_plugin_class_init (NMVPNPluginClass *plugin_class)
 	                                 &dbus_glib_nm_vpn_plugin_object_info);
 
 	/* virtual methods */
-	object_class->constructor  = constructor;
 	object_class->set_property = set_property;
 	object_class->get_property = get_property;
 	object_class->dispose      = dispose;
@@ -1058,3 +1045,10 @@ nm_vpn_plugin_class_init (NMVPNPluginClass *plugin_class)
 
 	setup_unix_signal_handler ();
 }
+
+static void
+nm_vpn_plugin_initable_interface_init (GInitableIface *iface, gpointer iface_data)
+{
+	iface->init = initable_init;
+}
+
