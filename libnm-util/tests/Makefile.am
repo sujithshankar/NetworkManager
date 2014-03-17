@@ -17,6 +17,7 @@ noinst_PROGRAMS = \
 	test-crypto \
 	test-secrets \
 	test-general \
+	test-nm-string-table \
 	test-setting-8021x \
 	test-setting-dcb
 
@@ -52,6 +53,14 @@ test_general_LDADD = \
 	$(GLIB_LIBS) \
 	$(DBUS_LIBS)
 
+test_nm_string_table_SOURCES = \
+	test-nm-string-table.c
+
+test_nm_string_table_LDADD = \
+	$(top_builddir)/libnm-util/libnm-util.la \
+	$(GLIB_LIBS) \
+	$(DBUS_LIBS)
+
 test_setting_8021x_SOURCES = \
 	test-setting-8021x.c
 
@@ -68,10 +77,11 @@ test_setting_dcb_LDADD = \
 	$(GLIB_LIBS) \
 	$(DBUS_LIBS)
 
-check-local: test-settings-defaults test-crypto test-secrets test-setting-8021x test-setting-dcb
+check-local: test-settings-defaults test-crypto test-secrets test-setting-8021x test-setting-dcb test-nm-string-table
 	$(abs_builddir)/test-settings-defaults
 	$(abs_builddir)/test-secrets
 	$(abs_builddir)/test-general
+	$(abs_builddir)/test-nm-string-table
 	$(abs_builddir)/test-setting-dcb
 
 # Private key and CA certificate in the same file (PEM)

@@ -22,6 +22,14 @@
 #include "nm-util-private.h"
 
 static const NMUtilPrivateData data = {
+	.f_nm_string_table_new = &nm_string_table_new,
+	.f_nm_string_table_size = &nm_string_table_size,
+	.f_nm_string_table_get_keys = &nm_string_table_get_keys,
+	.f_nm_string_table_get_compare_func = &nm_string_table_get_compare_func,
+	.f_nm_string_table_lookup_by_key = &nm_string_table_lookup_by_key,
+	.f_nm_string_table_lookup_by_index= &nm_string_table_lookup_by_index,
+	.f_nm_string_table_get_data_by_key= &nm_string_table_get_data_by_key,
+	.f_nm_string_table_get_data = &nm_string_table_get_data,
 };
 
 const NMUtilPrivateData *

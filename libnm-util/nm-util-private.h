@@ -24,9 +24,19 @@
 
 #include <glib.h>
 
+#include "nm-string-table.h"
+
 G_BEGIN_DECLS
 
 typedef struct NMUtilPrivateData {
+	NMStringTable *(*f_nm_string_table_new) (NMStringTableCompareFunc compare, int argc, const NMStringTableTuple *args);
+	guint (*f_nm_string_table_size) (NMStringTable *table);
+	const char *const*(*f_nm_string_table_get_keys) (NMStringTable *table);
+	NMStringTableCompareFunc (*f_nm_string_table_get_compare_func) (NMStringTable *table);
+	gboolean (*f_nm_string_table_lookup_by_key) (NMStringTable *table, const char *key, int *out_idx, const char **out_key, gpointer **out_data);
+	gboolean (*f_nm_string_table_lookup_by_index) (NMStringTable *table, int idx, const char **out_key, gpointer **out_data);
+	gpointer (*f_nm_string_table_get_data_by_key) (NMStringTable *table, const char *key);
+	gpointer *(*f_nm_string_table_get_data) (NMStringTable *table);
 } NMUtilPrivateData;
 
 const NMUtilPrivateData *nm_util_get_private (void);
