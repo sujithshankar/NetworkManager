@@ -26,8 +26,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 #include <gmodule.h>
 #include <glib-object.h>
@@ -37,10 +35,6 @@
 #include <dbus/dbus.h>
 #include <dbus/dbus-glib.h>
 #include <dbus/dbus-glib-lowlevel.h>
-
-#if HAVE_SELINUX
-#include <selinux/selinux.h>
-#endif
 
 #include <nm-setting-connection.h>
 
@@ -58,6 +52,7 @@
 #include "reader.h"
 #include "writer.h"
 #include "utils.h"
+#include "NetworkManagerUtils.h"
 
 #define DBUS_SERVICE_NAME "com.redhat.ifcfgrh1"
 #define DBUS_OBJECT_PATH "/com/redhat/ifcfgrh1"
@@ -667,38 +662,17 @@ plugin_set_hostname (SCPluginIfcfg *plugin, const char *hostname)
 	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
 	shvarFile *network;
 	char *hostname_eol;
-	gboolean ret;
-#if HAVE_SELINUX
-	security_context_t se_ctx_prev = NULL, se_ctx = NULL;
-	struct stat file_stat = { .st_mode = 0 };
-
-	/* Get default context for HOSTNAME_FILE and set it for fscreate */
-	stat (HOSTNAME_FILE, &file_stat);
-	matchpathcon (HOSTNAME_FILE, file_stat.st_mode, &se_ctx);
-	matchpathcon_fini ();
-	getfscreatecon (&se_ctx_prev);
-	setfscreatecon (se_ctx);
-#endif
 
 	hostname_eol = g_strdup_printf ("%s\n", hostname);
-	ret = g_file_set_contents (HOSTNAME_FILE, hostname_eol, -1, NULL);
-
-#if HAVE_SELINUX
-	/* Restore previous context and cleanup */
-	setfscreatecon (se_ctx_prev);
-	freecon (se_ctx);
-	freecon (se_ctx_prev);
-#endif
-
-	if (!ret) {
-		nm_log_warn (LOGD_SETTINGS, "Could not save hostname: failed to create/open " HOSTNAME_FILE);
+	if (!nm_utils_file_set_contents (HOSTNAME_FILE, hostname_eol, -1, NULL)) {
+		nm_log_warn (LOGD_SETTINGS, "Could not save hostname: failed to create/open %s", HOSTNAME_FILE);
 		g_free (hostname_eol);
 		return FALSE;
 	}
+	g_free (hostname_eol);
 
 	g_free (priv->hostname);
 	priv->hostname = g_strdup (hostname);
-	g_free (hostname_eol);
 
 	/* Remove "HOSTNAME" from SC_NETWORK_FILE, if present */
 	network = svOpenFile (SC_NETWORK_FILE, NULL);
