@@ -437,6 +437,10 @@ if SESSION_TRACKING_CK
 AM_CPPFLAGS += -DCKDB_PATH=\"${CKDB_PATH}\"
 endif
 
+if HAVE_SELINUX
+AM_CPPFLAGS += ${SELINUX_CFLAGS}
+endif
+
 libNetworkManager_la_SOURCES = \
 	$(nm_sources) \
 	$(glue_sources)
@@ -455,6 +459,10 @@ libNetworkManager_la_LIBADD = \
 
 if WITH_LIBSOUP
 libNetworkManager_la_LIBADD += $(LIBSOUP_LIBS)
+endif
+
+if HAVE_SELINUX
+libNetworkManager_la_LIBADD += $(SELINUX_LIBS)
 endif
 
 NetworkManager_LDFLAGS = -rdynamic
@@ -516,6 +524,10 @@ libnm_iface_helper_la_LIBADD = \
 	$(LIBNDP_LIBS) \
 	$(LIBDL) \
 	$(LIBM)
+
+if HAVE_SELINUX
+libnm_iface_helper_la_LIBADD += $(SELINUX_LIBS)
+endif
 
 libexec_PROGRAMS = nm-iface-helper
 

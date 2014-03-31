@@ -209,4 +209,9 @@ GHashTable *nm_utils_connection_dict_to_hash (GVariant *dict);
 GSList *nm_utils_ip4_routes_from_gvalue (const GValue *value);
 GSList *nm_utils_ip6_routes_from_gvalue (const GValue *value);
 
+gboolean nm_utils_file_set_contents (const char *filename,
+                                     const char *contents,
+                                     gssize length,
+                                     GError **error);
+
 #endif /* __NETWORKMANAGER_UTILS_H__ */

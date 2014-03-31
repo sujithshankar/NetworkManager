@@ -34,6 +34,10 @@
 #include <sys/wait.h>
 #include <linux/if.h>
 #include <linux/if_infiniband.h>
+#if HAVE_SELINUX
+#include <selinux/selinux.h>
+#include <sys/stat.h>
+#endif
 
 #include "NetworkManagerUtils.h"
 #include "nm-platform.h"
@@ -2524,4 +2528,45 @@ nm_utils_ip6_routes_from_gvalue (const GValue *value)
 	}
 
 	return g_slist_reverse (list);
+}
+
+/**
+ * nm_utils_set_file_contents:
+ * @filename: name of a file to write contents to (in the GLib file name encoding)
+ * @contents: data to write to the file
+ * @length: length of contents, or -1 if contents is a nul-terminated string
+ * @error: return location for a GError, or %NULL
+ *
+ * A wrapper for g_file_set_file_contents(), but preserves SELinux content of the file.
+ *
+ * Returns: %TRUE on success, %FALSE if an error occurred
+ */
+gboolean
+nm_utils_file_set_contents (const char *filename,
+                            const char *contents,
+                            gssize length,
+                            GError **error)
+{
+	gboolean ret;
+#if HAVE_SELINUX
+	security_context_t se_ctx_prev = NULL, se_ctx = NULL;
+	struct stat file_stat = { .st_mode = 0 };
+
+	/* Get default context for filename and set it for fscreate */
+	stat (filename, &file_stat);
+	matchpathcon (filename, file_stat.st_mode, &se_ctx);
+	matchpathcon_fini ();
+	getfscreatecon (&se_ctx_prev);
+	setfscreatecon (se_ctx);
+#endif
+
+	ret = g_file_set_contents (filename, contents, length, error);
+
+#if HAVE_SELINUX
+	/* Restore previous context and cleanup */
+	setfscreatecon (se_ctx_prev);
+	freecon (se_ctx);
+	freecon (se_ctx_prev);
+#endif
+	return ret;
 }
