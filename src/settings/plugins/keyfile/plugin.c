@@ -45,6 +45,7 @@
 #include "writer.h"
 #include "common.h"
 #include "utils.h"
+#include "NetworkManagerUtils.h"
 
 static char *plugin_get_hostname (SCPluginKeyfile *plugin);
 static void system_config_interface_init (NMSystemConfigInterface *system_config_interface_class);
@@ -519,6 +520,8 @@ get_unmanaged_specs (NMSystemConfigInterface *config)
 	return specs;
 }
 
+#define HOSTNAME_FILE   "/etc/hostname"
+
 static char *
 plugin_get_hostname (SCPluginKeyfile *plugin)
 {
@@ -527,6 +530,13 @@ plugin_get_hostname (SCPluginKeyfile *plugin)
 	char *hostname = NULL;
 	GError *error = NULL;
 
+	/* Get hostname from HOSTNAME_FILE */
+	if (g_file_get_contents (HOSTNAME_FILE, &hostname, NULL, NULL)) {
+		g_strchomp (hostname);
+		return hostname;
+	}
+
+	/* Fallback to NetworkManager.conf */
 	if (!priv->conf_file)
 		return NULL;
 
@@ -556,34 +566,44 @@ plugin_set_hostname (SCPluginKeyfile *plugin, const char *hostname)
 	GError *error = NULL;
 	char *data = NULL;
 	gsize len;
+	char *hostname_eol;
 
-	if (!priv->conf_file) {
-		g_set_error (&error, G_IO_ERROR, G_IO_ERROR_FAILED,
-		             "Error saving hostname: no config file");
-		goto out;
+	/* Save hostname to /etc/hostname */
+	hostname_eol = g_strdup_printf ("%s\n", hostname);
+	if (!nm_utils_file_set_contents (HOSTNAME_FILE, hostname_eol, -1, NULL)) {
+		nm_log_warn (LOGD_SETTINGS, "Could not save hostname: failed to create/open %s", HOSTNAME_FILE);
+		g_free (hostname_eol);
+		return FALSE;
 	}
+	g_free (hostname_eol);
 
 	g_free (priv->hostname);
 	priv->hostname = g_strdup (hostname);
+
+	if (!priv->conf_file)
+		goto out;
 
 	key_file = g_key_file_new ();
 	if (!parse_key_file_allow_none (priv, key_file, &error))
 		goto out;
 
-	g_key_file_set_string (key_file, "keyfile", "hostname", hostname);
+	if (g_key_file_get_value (key_file, "keyfile", "hostname", NULL)) {
+		/* Remove hostname from configuration file */
+		g_key_file_remove_key (key_file, "keyfile", "hostname", NULL);
 
-	data = g_key_file_to_data (key_file, &len, &error);
-	if (!data)
-		goto out;
+		data = g_key_file_to_data (key_file, &len, &error);
+		if (!data)
+			goto out;
 
-	if (!g_file_set_contents (priv->conf_file, data, len, &error)) {
-		g_prefix_error (&error, "Error saving hostname: ");
-		goto out;
+		if (!g_file_set_contents (priv->conf_file, data, len, &error)) {
+			g_prefix_error (&error, "Error in plugin_set_hostname(): ");
+			goto out;
+		}
 	}
 
 	ret = TRUE;
 
- out:
+out:
 	if (error) {
 		nm_log_warn (LOGD_SETTINGS, "%s", error->message);
 		g_error_free (error);
