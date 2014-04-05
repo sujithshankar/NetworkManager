@@ -64,6 +64,11 @@ typedef struct {
 	struct nl_cache *link_cache;
 	struct nl_cache *address_cache;
 	struct nl_cache *route_cache;
+
+	GHashTable *cache_link;
+	GHashTable *cache_address;
+	GHashTable *cache_route;
+
 	GIOChannel *event_channel;
 	guint event_id;
 
@@ -155,6 +160,184 @@ typedef enum {
 	__OBJECT_TYPE_LAST,
 } ObjectType;
 
+typedef struct {
+	const ObjectType type;
+	union {
+		NMPlatformObject object;
+		NMPlatformLink link;
+		NMPlatformIPAddress ip_address;
+		NMPlatformIP4Address ip4_address;
+		NMPlatformIP6Address ip6_address;
+		NMPlatformIPRoute ip_route;
+		NMPlatformIP4Route ip4_route;
+		NMPlatformIP6Route ip6_route;
+	};
+} PlatformObject;
+
+static guint
+_platform_object_lookup_hash (gconstpointer  key)
+{
+	guint hash = 0;
+	const PlatformObject *object = key;
+
+	switch (object->type) {
+	case OBJECT_TYPE_LINK:
+		/* libnl considers:
+		 *   .oo_id_attrs = LINK_ATTR_IFINDEX | LINK_ATTR_FAMILY,
+		 */
+		hash = (guint) 0x4959036263A785C0LL;
+		hash = hash * 1  + object->object.ifindex;
+		break;
+	case OBJECT_TYPE_IP4_ADDRESS:
+		/* libnl considers:
+		 *   .oo_id_attrs = (ADDR_ATTR_FAMILY | ADDR_ATTR_IFINDEX |
+		 *                   ADDR_ATTR_LOCAL | ADDR_ATTR_PREFIXLEN),
+		 */
+		hash = (guint) 0xC228E73802746F33LL;
+		hash = hash * 1  + object->object.ifindex;
+		hash = hash * 13 + object->ip_address.plen;
+		hash = hash * 13 + object->ip4_address.address;
+		break;
+	case OBJECT_TYPE_IP6_ADDRESS:
+		hash = (guint) 0xD2CAE07A2F3B4FC7LL;
+		hash = hash * 1  + object->object.ifindex;
+		hash = hash * 13 + object->ip_address.plen;
+		hash = hash * 13 + object->ip6_address.address.s6_addr[0];
+		hash = hash * 13 + object->ip6_address.address.s6_addr[1];
+		hash = hash * 13 + object->ip6_address.address.s6_addr[2];
+		hash = hash * 13 + object->ip6_address.address.s6_addr[3];
+		break;
+	case OBJECT_TYPE_IP4_ROUTE:
+		/* libnl considers:
+		 *   .oo_id_attrs = (ROUTE_ATTR_FAMILY | ROUTE_ATTR_TOS |
+		 *                   ROUTE_ATTR_TABLE | ROUTE_ATTR_DST |
+		 *                   ROUTE_ATTR_PRIO),
+		 */
+		hash = (guint) 0x7A80B1D1801315F0LL;
+		hash = hash * 1  + object->object.ifindex;
+		hash = hash * 13 + object->ip_route.plen;
+		hash = hash * 13 + object->ip_route.metric;
+		hash = hash * 13 + object->ip4_route.network;
+		break;
+	case OBJECT_TYPE_IP6_ROUTE:
+		hash = (guint) 0xFD4064E3BF8A5F2ALL;
+		hash = hash * 1  + object->object.ifindex;
+		hash = hash * 13 + object->ip_route.plen;
+		hash = hash * 13 + object->ip_route.metric;
+		hash = hash * 13 + object->ip6_route.network.s6_addr[0];
+		hash = hash * 13 + object->ip6_route.network.s6_addr[1];
+		hash = hash * 13 + object->ip6_route.network.s6_addr[2];
+		hash = hash * 13 + object->ip6_route.network.s6_addr[3];
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+	return hash;
+}
+
+static gboolean
+_platform_object_lookup_equal (gconstpointer a, gconstpointer b)
+{
+	const PlatformObject *o_a = a;
+	const PlatformObject *o_b = b;
+
+	if (o_a->object.ifindex != o_b->object.ifindex || o_a->type != o_b->type)
+		return FALSE;
+
+	switch (o_a->type) {
+	case OBJECT_TYPE_LINK:
+		return TRUE;
+	case OBJECT_TYPE_IP4_ADDRESS:
+		return o_a->ip_address.plen == o_b->ip_address.plen &&
+		       o_a->ip4_address.address == o_b->ip4_address.address;
+	case OBJECT_TYPE_IP6_ADDRESS:
+		return o_a->ip_address.plen == o_b->ip_address.plen &&
+		       memcmp (&o_a->ip6_address.address, &o_b->ip6_address.address, sizeof (o_a->ip6_address.address)) == 0;
+	case OBJECT_TYPE_IP4_ROUTE:
+		return o_a->ip4_route.metric == o_b->ip4_route.metric &&
+		       o_a->ip4_route.plen == o_b->ip4_route.plen &&
+		       memcmp (&o_a->ip4_route.network, &o_b->ip4_route.network, sizeof (o_a->ip4_route.network)) == 0;
+	case OBJECT_TYPE_IP6_ROUTE:
+		return o_a->ip6_route.metric == o_b->ip6_route.metric &&
+		       o_a->ip6_route.plen == o_b->ip6_route.plen &&
+		       memcmp (&o_a->ip6_route.network, &o_b->ip6_route.network, sizeof (o_a->ip6_route.network)) == 0;
+	default:
+		g_assert_not_reached ();
+		return FALSE;
+	}
+}
+
+static int
+_platform_object_cmp (gconstpointer a, gconstpointer b)
+{
+	const PlatformObject *o_a = a;
+	const PlatformObject *o_b = b;
+
+	if (o_a == o_b)
+		return 0;
+	if (!o_a)
+		return -1;
+	if (!o_b)
+		return 1;
+	if (o_a->type != o_b->type)
+		return o_a->type > o_b->type ? 1 : -1;
+
+	switch (o_a->type) {
+	case OBJECT_TYPE_LINK:
+		return nm_platform_link_cmp (&o_a->link, &o_b->link);
+	case OBJECT_TYPE_IP4_ADDRESS:
+		return nm_platform_ip4_address_cmp (&o_a->ip4_address, &o_b->ip4_address);
+	case OBJECT_TYPE_IP6_ADDRESS:
+		return nm_platform_ip6_address_cmp (&o_a->ip6_address, &o_b->ip6_address);
+	case OBJECT_TYPE_IP4_ROUTE:
+		return nm_platform_ip4_route_cmp (&o_a->ip4_route, &o_b->ip4_route);
+	case OBJECT_TYPE_IP6_ROUTE:
+		return nm_platform_ip6_route_cmp (&o_a->ip6_route, &o_b->ip6_route);
+	default:
+		g_assert_not_reached ();
+		return FALSE;
+	}
+}
+
+static PlatformObject *
+_platform_object_init (PlatformObject *obj, ObjectType type)
+{
+	memset (obj, 0, sizeof (PlatformObject));
+	*((ObjectType *) (&obj->type)) = type;
+
+	return obj;
+}
+
+#define _PLATFORM_OBJECT_SIZEOF(PLATFORM_TYPE) \
+	(sizeof ( \
+	    struct { \
+	        ObjectType type; \
+	        union { \
+	            NMPlatformObject object; \
+	            PLATFORM_TYPE typed_object; \
+	        }; \
+	    }))
+
+static size_t
+_platform_object_sizeof (ObjectType type)
+{
+	switch (type) {
+	case OBJECT_TYPE_LINK:
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformLink);
+	case OBJECT_TYPE_IP4_ADDRESS:
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformIP4Address);
+	case OBJECT_TYPE_IP6_ADDRESS:
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformIP6Address);
+	case OBJECT_TYPE_IP4_ROUTE:
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformIP4Route);
+	case OBJECT_TYPE_IP6_ROUTE:
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformIP6Route);
+	default:
+		g_assert_not_reached ();
+		return _PLATFORM_OBJECT_SIZEOF (NMPlatformObject);
+	}
+}
+
 static ObjectType
 object_type_from_nl_object (const struct nl_object *object)
 {
@@ -175,8 +358,15 @@ object_type_from_nl_object (const struct nl_object *object)
 			return OBJECT_TYPE_UNKNOWN;
 		}
 	} else if (!strcmp (type_str, "route/route")) {
+		struct rtnl_route *rtnlroute = (struct rtnl_route *) object;
+
+		if (rtnl_route_get_type (rtnlroute) != RTN_UNICAST ||
+		    rtnl_route_get_table (rtnlroute) != RT_TABLE_MAIN ||
+		    rtnl_route_get_protocol (rtnlroute) == RTPROT_KERNEL ||
+		    rtnl_route_get_nnexthops (rtnlroute) != 1)
+			return OBJECT_TYPE_UNKNOWN;
 		switch (rtnl_route_get_family ((struct rtnl_route *) object)) {
-		case AF_INET:
+			case AF_INET:
 			return OBJECT_TYPE_IP4_ROUTE;
 		case AF_INET6:
 			return OBJECT_TYPE_IP6_ROUTE;
@@ -935,6 +1125,13 @@ init_ip4_route (NMPlatformIP4Route *route, struct rtnl_route *rtnlroute)
 	struct nl_addr *dst, *gw;
 	struct rtnl_nexthop *nexthop;
 
+	if (rtnl_route_get_type (rtnlroute) != RTN_UNICAST ||
+	    rtnl_route_get_table (rtnlroute) != RT_TABLE_MAIN ||
+	    rtnl_route_get_protocol (rtnlroute) == RTPROT_KERNEL ||
+	    rtnl_route_get_family (rtnlroute) != AF_INET ||
+	    rtnl_route_get_nnexthops (rtnlroute) != 1)
+		return FALSE;
+
 	memset (route, 0, sizeof (*route));
 
 	/* Multi-hop routes not supported. */
@@ -1005,6 +1202,46 @@ init_ip6_route (NMPlatformIP6Route *route, struct rtnl_route *rtnlroute)
 	rtnl_route_get_metric (rtnlroute, RTAX_ADVMSS, &route->mss);
 
 	return TRUE;
+}
+
+static PlatformObject *
+_platform_object_create (NMPlatform *platform, const struct nl_object *nlobject, PlatformObject *obj)
+{
+	PlatformObject *obj_allocated = NULL;
+	ObjectType type = object_type_from_nl_object (nlobject);
+	gboolean init_success = FALSE;
+
+	if (type == OBJECT_TYPE_UNKNOWN)
+		return NULL;
+
+	if (!obj)
+		obj = obj_allocated = g_malloc (_platform_object_sizeof (type));
+	_platform_object_init (obj, type);
+
+	switch (type) {
+	case OBJECT_TYPE_LINK:
+		init_success  = init_link (platform, &obj->link, (struct rtnl_link *) nlobject);
+		break;
+	case OBJECT_TYPE_IP4_ADDRESS:
+		init_success = init_ip4_address (&obj->ip4_address, (struct rtnl_addr *) nlobject);
+		break;
+	case OBJECT_TYPE_IP6_ADDRESS:
+		init_success = init_ip6_address (&obj->ip6_address, (struct rtnl_addr *) nlobject);
+		break;
+	case OBJECT_TYPE_IP4_ROUTE:
+		init_success = init_ip4_route (&obj->ip4_route, (struct rtnl_route *) nlobject);
+		break;
+	case OBJECT_TYPE_IP6_ROUTE:
+		init_success = init_ip6_route (&obj->ip6_route, (struct rtnl_route *) nlobject);
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+	if (!init_success) {
+		g_free (obj_allocated);
+		return NULL;
+	}
+	return obj;
 }
 
 static char to_string_buffer[255];
@@ -1091,6 +1328,29 @@ to_string_object (NMPlatform *platform, struct nl_object *obj)
 	return to_string_object_with_type (platform, obj, object_type_from_nl_object (obj));
 }
 
+static const char *
+_platform_object_to_string (NMPlatform *platform, const PlatformObject *platform_object)
+{
+	if (!platform_object)
+		return "NULL";
+
+	switch (platform_object->type) {
+	case OBJECT_TYPE_LINK:
+		return nm_platform_link_to_string (&platform_object->link);
+	case OBJECT_TYPE_IP4_ADDRESS:
+		return nm_platform_ip4_address_to_string (&platform_object->ip4_address);
+	case OBJECT_TYPE_IP6_ADDRESS:
+		return nm_platform_ip6_address_to_string (&platform_object->ip6_address);
+	case OBJECT_TYPE_IP4_ROUTE:
+		return nm_platform_ip4_route_to_string (&platform_object->ip4_route);
+	case OBJECT_TYPE_IP6_ROUTE:
+		return nm_platform_ip6_route_to_string (&platform_object->ip6_route);
+	default:
+		g_return_val_if_reached ("UNKNOWN");
+		return "UNKNOWN";
+	}
+}
+
 #undef SET_AND_RETURN_STRING_BUFFER
 
 /******************************************************************/
@@ -1123,6 +1383,38 @@ choose_cache_by_type (NMPlatform *platform, ObjectType object_type)
 		g_return_val_if_reached (NULL);
 		return NULL;
 	}
+}
+
+static GHashTable *
+_platform_object_get_cache (NMPlatform *platform, const PlatformObject *platform_object)
+{
+	NMLinuxPlatformPrivate *priv = NM_LINUX_PLATFORM_GET_PRIVATE (platform);
+
+	g_return_val_if_fail (platform_object, NULL);
+
+	switch (platform_object->type) {
+	case OBJECT_TYPE_LINK:
+		return priv->cache_link;
+	case OBJECT_TYPE_IP4_ADDRESS:
+	case OBJECT_TYPE_IP6_ADDRESS:
+		return priv->cache_address;
+	case OBJECT_TYPE_IP4_ROUTE:
+	case OBJECT_TYPE_IP6_ROUTE:
+		return priv->cache_route;
+	default:
+		g_return_val_if_reached (NULL);
+		return NULL;
+	}
+}
+
+static PlatformObject *
+_platform_object_lookup (NMPlatform *platform, const PlatformObject *platform_object)
+{
+	GHashTable *cache = _platform_object_get_cache (platform, platform_object);
+
+	g_return_val_if_fail (cache, NULL);
+
+	return g_hash_table_lookup (cache, platform_object);
 }
 
 static struct nl_cache *
@@ -1449,6 +1741,7 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 {
 	NMPlatform *platform = NM_PLATFORM (user_data);
 	NMLinuxPlatformPrivate *priv = NM_LINUX_PLATFORM_GET_PRIVATE (platform);
+	PlatformObject *platform_object, platform_object_storage, *platform_object_cached;
 	struct nl_cache *cache;
 	auto_nl_object struct nl_object *object = NULL;
 	auto_nl_object struct nl_object *cached_object = NULL;
@@ -1479,6 +1772,16 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 		} else
 			debug ("netlink event (type %d)", event);
 	}
+
+	platform_object = _platform_object_create (platform, object, &platform_object_storage);
+	if (!platform_object)
+		return NL_OK;
+	debug ("netlink event: received %s", _platform_object_to_string (platform, platform_object));
+
+	platform_object_cached = _platform_object_lookup (platform, platform_object);
+	debug ("netlink event: cached   %s", _platform_object_to_string (platform, platform_object_cached));
+
+	(void)_platform_object_cmp;
 
 	cache = choose_cache (platform, object);
 	cached_object = nm_nl_cache_search (cache, object);
@@ -3474,6 +3777,11 @@ handle_udev_event (GUdevClient *client,
 static void
 nm_linux_platform_init (NMLinuxPlatform *platform)
 {
+	NMLinuxPlatformPrivate *priv = NM_LINUX_PLATFORM_GET_PRIVATE (platform);
+
+	priv->cache_link = g_hash_table_new_full (_platform_object_lookup_hash, _platform_object_lookup_equal, g_free, NULL);
+	priv->cache_address = g_hash_table_new_full (_platform_object_lookup_hash, _platform_object_lookup_equal, g_free, NULL);
+	priv->cache_route = g_hash_table_new_full (_platform_object_lookup_hash, _platform_object_lookup_equal, g_free, NULL);
 }
 
 static gboolean
@@ -3569,6 +3877,10 @@ nm_linux_platform_finalize (GObject *object)
 	nl_cache_free (priv->link_cache);
 	nl_cache_free (priv->address_cache);
 	nl_cache_free (priv->route_cache);
+
+	g_hash_table_destroy (priv->cache_link);
+	g_hash_table_destroy (priv->cache_address);
+	g_hash_table_destroy (priv->cache_route);
 
 	g_object_unref (priv->udev_client);
 	g_hash_table_unref (priv->udev_devices);
