@@ -772,6 +772,39 @@ check_connection_interface_name (NMConnection *orig,
 	return allow;
 }
 
+static gboolean
+check_connection_mac_address (NMConnection *orig,
+                              NMConnection *candidate,
+                              GHashTable *settings)
+{
+	GHashTable *props;
+	const GByteArray *orig_mac, *cand_mac;
+	NMSettingWired *s_wired_orig, *s_wired_cand;
+	gboolean allow = FALSE;
+
+	props = g_hash_table_lookup (settings, NM_SETTING_WIRED_SETTING_NAME);
+	if (   !props
+	    || !g_hash_table_lookup (props, NM_SETTING_WIRED_MAC_ADDRESS)) {
+		return TRUE;
+	}
+
+	/* If one of the MAC addresses is NULL, we accept that connection */
+	s_wired_orig = nm_connection_get_setting_wired (orig);
+	s_wired_cand = nm_connection_get_setting_wired (candidate);
+	orig_mac = nm_setting_wired_get_mac_address (s_wired_orig);
+	cand_mac = nm_setting_wired_get_mac_address (s_wired_cand);
+
+	if (!orig_mac || !cand_mac)
+		allow = TRUE;
+
+	if (allow) {
+		g_hash_table_remove (props, NM_SETTING_WIRED_MAC_ADDRESS);
+		if (g_hash_table_size (props) == 0)
+			g_hash_table_remove (settings, NM_SETTING_WIRED_SETTING_NAME);
+	}
+	return allow;
+}
+
 static NMConnection *
 check_possible_match (NMConnection *orig,
                       NMConnection *candidate,
@@ -787,6 +820,9 @@ check_possible_match (NMConnection *orig,
 		return NULL;
 
 	if (!check_connection_interface_name (orig, candidate, settings))
+		return NULL;
+
+	if (!check_connection_mac_address (orig, candidate, settings))
 		return NULL;
 
 	if (g_hash_table_size (settings) == 0)
