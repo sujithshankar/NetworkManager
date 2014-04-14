@@ -61,6 +61,7 @@ nmtst_init (int *argc, char ***argv, const char *log_level, const char *log_doma
 	if (log_level || log_domains) {
 		gboolean success = FALSE;
 #ifdef NM_LOGGING_H
+		nm_logging_set_glib_handler ();
 		success = nm_logging_setup (log_level, log_domains, NULL, NULL);
 #endif
 		g_assert (success);
