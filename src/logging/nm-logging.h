@@ -133,5 +133,7 @@ gboolean nm_logging_setup (const char  *level,
                            GError     **error);
 void     nm_logging_syslog_openlog   (gboolean debug);
 void     nm_logging_syslog_closelog  (void);
+void     nm_logging_set_glib_handler (void);
+
 
 #endif /* NM_LOGGING_H */

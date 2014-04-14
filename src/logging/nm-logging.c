@@ -469,13 +469,19 @@ nm_log_handler (const gchar *log_domain,
 void
 nm_logging_syslog_openlog (gboolean debug)
 {
-	static gsize log_handler_initialized = 0;
-
 	if (debug)
 		openlog (G_LOG_DOMAIN, LOG_CONS | LOG_PERROR | LOG_PID, LOG_USER);
 	else
 		openlog (G_LOG_DOMAIN, LOG_PID, LOG_DAEMON);
 	syslog_opened = TRUE;
+
+	nm_logging_set_glib_handler ();
+}
+
+void
+nm_logging_set_glib_handler ()
+{
+	static gsize log_handler_initialized = 0;
 
 	if (g_once_init_enter (&log_handler_initialized)) {
 		g_log_set_handler (G_LOG_DOMAIN,
