@@ -63,6 +63,7 @@ enum {
 	LOGD_CONCHECK   = (1LL << 33),
 	LOGD_DCB        = (1LL << 34), /* Data Center Bridging */
 	LOGD_DISPATCH   = (1LL << 35),
+	LOGD_GLIB       = (1LL << 36), /* Messages logged via glib logging */
 };
 
 #define LOGD_DHCP (LOGD_DHCP4 | LOGD_DHCP6)
