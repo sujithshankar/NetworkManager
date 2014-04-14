@@ -354,6 +354,60 @@ nm_logging_enabled (guint32 level, guint64 domain)
 	return !!(logging[level] & domain);
 }
 
+static int
+_level_nm_to_syslog (gint32 level)
+{
+	switch (level) {
+	case LOGL_DEBUG:
+		return LOG_INFO;
+	case LOGL_INFO:
+		return LOG_INFO;
+	case LOGL_WARN:
+		return LOG_WARNING;
+	case LOGL_ERR:
+		return LOG_ERR;
+	default:
+		g_assert_not_reached ();
+	}
+}
+
+static gint32
+_level_glib_to_nm (GLogLevelFlags level)
+{
+	if (level & G_LOG_FLAG_FATAL)
+		return LOGL_ERR;
+
+	switch (level & G_LOG_LEVEL_MASK) {
+	case G_LOG_LEVEL_ERROR:
+	case G_LOG_LEVEL_CRITICAL:
+		return LOGL_ERR;
+	case G_LOG_LEVEL_WARNING:
+		return LOGL_WARN;
+	case G_LOG_LEVEL_MESSAGE:
+	case G_LOG_LEVEL_INFO:
+		return  LOGL_INFO;
+	case G_LOG_LEVEL_DEBUG:
+		return LOGL_DEBUG;
+	default:
+		return LOGL_ERR;
+	}
+}
+
+static void
+_print (gint32 level, const char *msg)
+{
+	if (syslog_opened)
+		syslog (_level_nm_to_syslog (level), "%s", msg);
+	else {
+		FILE *log_target;
+		if (level == LOGL_WARN || level == LOGL_ERR)
+			log_target = stderr;
+		else
+			log_target = stdout;
+		fprintf (log_target, "%s\n", msg);
+	}
+}
+
 void
 _nm_log (const char *loc,
          const char *func,
@@ -366,7 +420,6 @@ _nm_log (const char *loc,
 	char *msg;
 	char *fullmsg = NULL;
 	GTimeVal tv;
-	int syslog_level = LOG_INFO;
 
 	g_return_if_fail (level < LOGL_MAX);
 
@@ -380,19 +433,15 @@ _nm_log (const char *loc,
 	switch (level) {
 	case LOGL_DEBUG:
 		g_get_current_time (&tv);
-		syslog_level = LOG_INFO;
 		fullmsg = g_strdup_printf ("<debug> [%ld.%06ld] [%s] %s(): %s", tv.tv_sec, tv.tv_usec, loc, func, msg);
 		break;
 	case LOGL_INFO:
-		syslog_level = LOG_INFO;
 		fullmsg = g_strconcat ("<info> ", msg, NULL);
 		break;
 	case LOGL_WARN:
-		syslog_level = LOG_WARNING;
 		fullmsg = g_strconcat ("<warn> ", msg, NULL);
 		break;
 	case LOGL_ERR:
-		syslog_level = LOG_ERR;
 		g_get_current_time (&tv);
 		fullmsg = g_strdup_printf ("<error> [%ld.%06ld] [%s] %s(): %s", tv.tv_sec, tv.tv_usec, loc, func, msg);
 		break;
@@ -400,16 +449,7 @@ _nm_log (const char *loc,
 		g_assert_not_reached ();
 	}
 
-	if (syslog_opened)
-		syslog (syslog_level, "%s", fullmsg);
-	else {
-		FILE *log_target;
-		if (level == LOGL_WARN || level == LOGL_ERR)
-			log_target = stderr;
-		else
-			log_target = stdout;
-		fprintf (log_target, "%s\n", fullmsg);
-	}
+	_print (level, fullmsg);
 
 	g_free (msg);
 	g_free (fullmsg);
@@ -423,31 +463,7 @@ nm_log_handler (const gchar *log_domain,
                 const gchar *message,
                 gpointer ignored)
 {
-	int syslog_priority;	
-
-	switch (level) {
-	case G_LOG_LEVEL_ERROR:
-		syslog_priority = LOG_CRIT;
-		break;
-	case G_LOG_LEVEL_CRITICAL:
-		syslog_priority = LOG_ERR;
-		break;
-	case G_LOG_LEVEL_WARNING:
-		syslog_priority = LOG_WARNING;
-		break;
-	case G_LOG_LEVEL_MESSAGE:
-		syslog_priority = LOG_NOTICE;
-		break;
-	case G_LOG_LEVEL_DEBUG:
-		syslog_priority = LOG_DEBUG;
-		break;
-	case G_LOG_LEVEL_INFO:
-	default:
-		syslog_priority = LOG_INFO;
-		break;
-	}
-
-	syslog (syslog_priority, "%s", message);
+	_print (_level_glib_to_nm (level), message);
 }
 
 void
