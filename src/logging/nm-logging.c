@@ -409,6 +409,40 @@ _print (gint32 level, const char *msg)
 	}
 }
 
+static void
+_nm_log_msg (const char *loc,
+             const char *func,
+             guint32 level,
+             const char *msg,
+             const char *prefix)
+{
+	char *fullmsg = NULL;
+	GTimeVal tv;
+
+	switch (level) {
+	case LOGL_DEBUG:
+		g_get_current_time (&tv);
+		fullmsg = g_strdup_printf ("<debug> %s[%ld.%06ld] [%s] %s(): %s", prefix, tv.tv_sec, tv.tv_usec, loc, func, msg);
+		break;
+	case LOGL_INFO:
+		fullmsg = g_strconcat ("<info> ", prefix, msg, NULL);
+		break;
+	case LOGL_WARN:
+		fullmsg = g_strconcat ("<warn> ", prefix, msg, NULL);
+		break;
+	case LOGL_ERR:
+		g_get_current_time (&tv);
+		fullmsg = g_strdup_printf ("<error> %s[%ld.%06ld] [%s] %s(): %s", prefix, tv.tv_sec, tv.tv_usec, loc, func, msg);
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+
+	_print (level, fullmsg);
+
+	g_free (fullmsg);
+}
+
 void
 _nm_log (const char *loc,
          const char *func,
@@ -419,11 +453,8 @@ _nm_log (const char *loc,
 {
 	va_list args;
 	char *msg;
-	char *fullmsg = NULL;
-	GTimeVal tv;
 
 	g_return_if_fail (level < LOGL_MAX);
-
 	if (!(logging[level] & domain))
 		return;
 
@@ -431,29 +462,9 @@ _nm_log (const char *loc,
 	msg = g_strdup_vprintf (fmt, args);
 	va_end (args);
 
-	switch (level) {
-	case LOGL_DEBUG:
-		g_get_current_time (&tv);
-		fullmsg = g_strdup_printf ("<debug> [%ld.%06ld] [%s] %s(): %s", tv.tv_sec, tv.tv_usec, loc, func, msg);
-		break;
-	case LOGL_INFO:
-		fullmsg = g_strconcat ("<info> ", msg, NULL);
-		break;
-	case LOGL_WARN:
-		fullmsg = g_strconcat ("<warn> ", msg, NULL);
-		break;
-	case LOGL_ERR:
-		g_get_current_time (&tv);
-		fullmsg = g_strdup_printf ("<error> [%ld.%06ld] [%s] %s(): %s", tv.tv_sec, tv.tv_usec, loc, func, msg);
-		break;
-	default:
-		g_assert_not_reached ();
-	}
-
-	_print (level, fullmsg);
+	_nm_log_msg (loc, func, level, msg, "");
 
 	g_free (msg);
-	g_free (fullmsg);
 }
 
 /************************************************************************/
@@ -464,7 +475,10 @@ nm_log_handler (const gchar *log_domain,
                 const gchar *message,
                 gpointer ignored)
 {
-	_print (_level_glib_to_nm (level), message);
+	gint32 nm_level = _level_glib_to_nm (level);
+
+	if (logging[nm_level] & LOGD_GLIB)
+		_nm_log_msg (log_domain ? log_domain : "unknown", "unknown", nm_level, message, "[glib] ");
 }
 
 void
