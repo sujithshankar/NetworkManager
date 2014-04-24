@@ -430,29 +430,42 @@ nm_log_handler (const gchar *log_domain,
                 const gchar *message,
                 gpointer ignored)
 {
+	guint32 nm_level;
 	int syslog_priority;	
 
 	switch (level & G_LOG_LEVEL_MASK) {
 	case G_LOG_LEVEL_ERROR:
 		syslog_priority = LOG_CRIT;
+		nm_level = LOGL_ERR;
 		break;
 	case G_LOG_LEVEL_CRITICAL:
 		syslog_priority = LOG_ERR;
+		nm_level = LOGL_ERR;
 		break;
 	case G_LOG_LEVEL_WARNING:
 		syslog_priority = LOG_WARNING;
+		nm_level = LOGL_WARN;
 		break;
 	case G_LOG_LEVEL_MESSAGE:
 		syslog_priority = LOG_NOTICE;
+		nm_level = LOGL_INFO;
 		break;
 	case G_LOG_LEVEL_DEBUG:
 		syslog_priority = LOG_DEBUG;
+		nm_level = LOGL_DEBUG;
 		break;
 	case G_LOG_LEVEL_INFO:
 	default:
 		syslog_priority = LOG_INFO;
+		nm_level = LOGL_INFO;
 		break;
 	}
+
+	if (G_UNLIKELY (!logging_set_up))
+		nm_logging_setup ("INFO", "DEFAULT", NULL, NULL);
+
+	if (!(logging[nm_level] & LOGD_GLIB))
+		return;
 
 	syslog (syslog_priority, "%s", message);
 }
