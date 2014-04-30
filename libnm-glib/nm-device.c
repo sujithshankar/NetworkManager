@@ -1215,6 +1215,39 @@ nm_device_get_managed (NMDevice *device)
 }
 
 /**
+ * nm_device_set_managed:
+ * @device: an #NMDevice
+ * @managed: whether @device should be managed by NM
+ *
+ * This updates the #NMDevice:managed property of the device,
+ * indicating to the daemon that the device either should or should
+ * not be controlled by NetworkManager.
+ *
+ * Unmanaging a device with an active connection will result in that
+ * connection being deactivated.
+ *
+ * Since: 1.0
+ */
+void
+nm_device_set_managed (NMDevice *device,
+                       gboolean managed)
+{
+	GValue value = G_VALUE_INIT;
+
+	g_return_if_fail (NM_IS_DEVICE (device));
+
+	g_value_init (&value, G_TYPE_BOOLEAN);
+	g_value_set_boolean (&value, managed);
+
+	NM_DEVICE_GET_PRIVATE (device)->managed = managed;
+
+	_nm_object_set_property (NM_OBJECT (device),
+	                         NM_DBUS_INTERFACE_DEVICE,
+	                         "Managed",
+	                         &value);
+}
+
+/**
  * nm_device_get_autoconnect:
  * @device: a #NMDevice
  *
