@@ -284,6 +284,8 @@ usage (void)
 	           "  show [<ifname>]\n\n"
 	           "  connect <ifname>\n\n"
 	           "  disconnect <ifname>\n\n"
+	           "  manage <ifname>\n\n"
+	           "  unmanage <ifname>\n\n"
 	           "  wifi [list [ifname <ifname>] [bssid <BSSID>]]\n\n"
 	           "  wifi connect <(B)SSID> [password <password>] [wep-key-type key|phrase] [ifname <ifname>]\n"
 	           "                         [bssid <BSSID>] [name <name>] [private yes|no]\n\n"
@@ -346,6 +348,34 @@ usage_device_disconnect (void)
 	           "Disconnect the device.\n"
 	           "The command disconnects the device and prevents it from auto-activating\n"
 	           "further connections without user/manual intervention.\n\n"));
+}
+
+static void
+usage_device_manage (void)
+{
+	fprintf (stderr,
+	         _("Usage: nmcli device manage { ARGUMENTS | help }\n"
+	           "\n"
+	           "ARGUMENTS := <ifname>\n"
+	           "\n"
+	           "Tell NetworkManager to manage the device.\n"
+	           "Marking a device as managed allows NetworkManager to activate connections\n"
+	           "on it. This is the default state for recognized device types that have not\n"
+	           "been explicitly configured to be unmanaged.\n\n"));
+}
+
+static void
+usage_device_unmanage (void)
+{
+	fprintf (stderr,
+	         _("Usage: nmcli device unmanage { ARGUMENTS | help }\n"
+	           "\n"
+	           "ARGUMENTS := <ifname>\n"
+	           "\n"
+	           "Tell NetworkManager to stop managing the device.\n"
+	           "Unmanaging a device will deactivate any connection currently active on it\n"
+	           "and prevent NetworkManager from activating any other connection on it\n"
+	           "in the future.\n\n"));
 }
 
 static void
@@ -1584,6 +1614,73 @@ error:
 	return nmc->return_value;
 }
 
+static NMCResultCode
+do_device_set_managed (NmCli *nmc, gboolean managed, int argc, char **argv)
+{
+	NMDevice **devices;
+	NMDevice *device = NULL;
+	const char *ifname = NULL;
+	char *ifname_ask = NULL;
+	int i;
+
+	if (argc == 0) {
+		if (nmc->ask) {
+			ifname = ifname_ask = nmc_get_user_input (_("Interface: "));
+			// TODO: list available devices when just Enter is pressed ?
+		}
+		if (!ifname_ask) {
+			g_string_printf (nmc->return_text, _("Error: No interface specified."));
+			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+			goto error;
+		}
+	} else {
+		ifname = *argv;
+	}
+
+	if (!ifname) {
+		g_string_printf (nmc->return_text, _("Error: No interface specified."));
+		nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+		goto error;
+	}
+
+	if (next_arg (&argc, &argv) == 0) {
+		g_string_printf (nmc->return_text, _("Error: extra argument not allowed: '%s'."), *argv);
+		nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+		goto error;
+	}
+
+	nmc->get_client (nmc);
+	if (!nm_client_get_manager_running (nmc->client)) {
+		g_string_printf (nmc->return_text, _("Error: NetworkManager is not running."));
+		nmc->return_value = NMC_RESULT_ERROR_NM_NOT_RUNNING;
+		goto error;
+	}
+
+	if (!nmc_versions_match (nmc))
+		goto error;
+
+	devices = get_devices_sorted (nmc->client);
+	for (i = 0; devices[i]; i++) {
+		NMDevice *candidate = devices[i];
+		const char *dev_iface = nm_device_get_iface (candidate);
+
+		if (!g_strcmp0 (dev_iface, ifname))
+			device = candidate;
+	}
+	g_free (devices);
+
+	if (!device) {
+		g_string_printf (nmc->return_text, _("Error: Device '%s' not found."), ifname);
+		nmc->return_value = NMC_RESULT_ERROR_UNKNOWN;
+		goto error;
+	}
+
+	nm_device_set_managed (device, managed);
+
+ error:
+	return nmc->return_value;
+}
+
 static void
 show_acces_point_info (NMDevice *device, NmCli *nmc)
 {
@@ -2679,6 +2776,20 @@ do_devices (NmCli *nmc, int argc, char **argv)
 				goto usage_exit;
 			}
 			nmc->return_value = do_device_disconnect (nmc, argc-1, argv+1);
+		}
+		else if (matches (*argv, "manage") == 0) {
+			if (nmc_arg_is_help (*(argv+1))) {
+				usage_device_manage ();
+				goto usage_exit;
+			}
+			nmc->return_value = do_device_set_managed (nmc, TRUE, argc-1, argv+1);
+		}
+		else if (matches (*argv, "unmanage") == 0) {
+			if (nmc_arg_is_help (*(argv+1))) {
+				usage_device_unmanage ();
+				goto usage_exit;
+			}
+			nmc->return_value = do_device_set_managed (nmc, FALSE, argc-1, argv+1);
 		}
 		else if (matches (*argv, "wifi") == 0) {
 			if (nmc_arg_is_help (*(argv+1))) {

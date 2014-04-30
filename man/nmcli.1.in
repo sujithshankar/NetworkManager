@@ -683,7 +683,7 @@ of its latest state.
 .B device - show and manage network interfaces
 .br
 .TP
-.SS \fICOMMAND\fP := { status | show | connect | disconnect | wifi | wimax }
+.SS \fICOMMAND\fP := { status | show | connect | disconnect | manage | unmanage | wifi | wimax }
 .sp
 .RS
 .TP
@@ -712,6 +712,20 @@ Disconnect a device and prevent the device from automatically activating further
 connections without user/manual intervention.
 .br
 If '--wait' option is not specified, the default timeout will be 10 seconds.
+.TP
+.B manage <ifname>
+.br
+Tells NetworkManager to manage the device. Marking a device as managed
+allows NetworkManager to activate connections on it. This is the
+default state for recognized device types that have not been
+explicitly configured to be unmanaged.
+.TP
+.B unmanage <ifname>
+.br
+Tells NetworkManager to stop managing the device. Unmanaging a device
+will deactivate any connection currently active on it and prevent
+NetworkManager from activating any other connection on it in the
+future.
 .TP
 .B wifi [list [ifname <ifname>] [bssid <BSSID>]]
 .br
