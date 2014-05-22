@@ -13651,6 +13651,44 @@ test_svUnescape ()
 	g_rand_free (r);
 }
 
+static void
+test_read_vlan_trailing_spaces (void)
+{
+	const char *testfile = TEST_IFCFG_DIR"/network-scripts/ifcfg-test-vlan-trailing-spaces";
+	NMConnection *connection;
+	gboolean ignore_error = FALSE, success;
+	char *unhandled_spec = NULL;
+	GError *error = NULL;
+	NMSettingVlan *s_vlan;
+	char *contents = NULL;
+
+	/* Ensure there is whitespace at the end of the VLAN interface name,
+	 * to prevent the whitespace getting stripped off and committed mistakenly
+	 * by something in the future.
+	 */
+	success = g_file_get_contents (testfile, &contents, NULL, &error);
+	g_assert_no_error (error);
+	g_assert (success);
+	g_assert (contents && contents[0]);
+	g_assert (strstr (contents, "DEVICE=\"vlan201\"  \n"));
+	g_free (contents);
+
+	connection = connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL, &unhandled_spec,
+	                                   NULL, NULL, NULL, &error, &ignore_error);
+	g_assert_no_error (error);
+	g_assert (connection != NULL);
+
+	s_vlan = nm_connection_get_setting_vlan (connection);
+	g_assert (s_vlan);
+
+	g_assert_cmpstr (nm_setting_vlan_get_interface_name (s_vlan), ==, "vlan201");
+	g_assert_cmpstr (nm_setting_vlan_get_parent (s_vlan), ==, "enccw0.0.fb00");
+	g_assert_cmpint (nm_setting_vlan_get_id (s_vlan), ==, 201);
+	g_assert_cmpint (nm_setting_vlan_get_flags (s_vlan), ==, 0);
+
+	g_object_unref (connection);
+}
+
 
 #define TEST_IFCFG_WIFI_OPEN_SSID_BAD_HEX TEST_IFCFG_DIR"/network-scripts/ifcfg-test-wifi-open-ssid-bad-hex"
 #define TEST_IFCFG_WIFI_OPEN_SSID_LONG_QUOTED TEST_IFCFG_DIR"/network-scripts/ifcfg-test-wifi-open-ssid-long-quoted"
@@ -13676,6 +13714,7 @@ int main (int argc, char **argv)
 	nmtst_init_assert_logging (&argc, &argv);
 
 	g_test_add_func (TPATH "svUnescape", test_svUnescape);
+	g_test_add_func (TPATH "vlan-trailing-spaces", test_read_vlan_trailing_spaces);
 
 	g_test_add_func (TPATH "unmanaged", test_read_unmanaged);
 	g_test_add_func (TPATH "unmanaged-unrecognized", test_read_unmanaged_unrecognized);
