@@ -286,7 +286,7 @@ impl_agent_manager_register_with_capabilities (NMAgentManager *self,
 	NMAgentManagerPrivate *priv = NM_AGENT_MANAGER_GET_PRIVATE (self);
 	NMAuthSubject *subject;
 	gulong sender_uid = G_MAXULONG;
-	GError *error = NULL, *local = NULL;
+	GError *error = NULL;
 	NMSecretAgent *agent;
 	NMAuthChain *chain;
 
@@ -298,17 +298,6 @@ impl_agent_manager_register_with_capabilities (NMAgentManager *self,
 		goto done;
 	}
 	sender_uid = nm_auth_subject_get_unix_process_uid (subject);
-
-	if (   0 != sender_uid
-	    && !nm_session_monitor_uid_has_session (nm_session_monitor_get (),
-	                                            sender_uid,
-	                                            NULL,
-	                                            &local)) {
-		error = g_error_new_literal (NM_AGENT_MANAGER_ERROR,
-		                             NM_AGENT_MANAGER_ERROR_SESSION_NOT_FOUND,
-		                             local && local->message ? local->message : "Session not found");
-		goto done;
-	}
 
 	/* Validate the identifier */
 	if (!validate_identifier (identifier, &error))
@@ -352,7 +341,6 @@ done:
 	if (error)
 		dbus_g_method_return_error (context, error);
 	g_clear_error (&error);
-	g_clear_error (&local);
 	g_clear_object (&subject);
 }
 

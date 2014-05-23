@@ -258,10 +258,7 @@ nm_settings_connection_recheck_visibility (NMSettingsConnection *self)
 		const char *puser;
 
 		if (nm_setting_connection_get_permission (s_con, i, NULL, &puser, NULL)) {
-			if (nm_session_monitor_user_has_session (priv->session_monitor, puser, NULL, NULL)) {
-				set_visible (self, TRUE);
-				return;
-			}
+			set_visible (self, TRUE);
 		}
 	}
 

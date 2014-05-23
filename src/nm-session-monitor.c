@@ -97,7 +97,7 @@ nm_session_monitor_error_quark (void)
 
 /********************************************************************/
 
-static gboolean
+gboolean
 nm_session_monitor_uid_to_user (uid_t uid, const char **out_user, GError **error)
 {
 	struct passwd *pw;
