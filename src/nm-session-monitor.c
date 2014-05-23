@@ -50,13 +50,22 @@
 struct _NMSessionMonitor {
 	GObject parent_instance;
 
-	GKeyFile *database;
-	GFileMonitor *database_monitor;
-	time_t database_mtime;
-	GHashTable *sessions_by_uid;
-	GHashTable *sessions_by_user;
+#ifdef SESSION_TRACKING_SYSTEMD
+	struct {
+		GSource *source;
+	} sd;
+#endif
 
-	GSource *sd_source;
+#ifdef SESSION_TRACKING_CONSOLEKIT
+	struct {
+		GKeyFile *database;
+		GFileMonitor *database_monitor;
+		time_t database_mtime;
+		GHashTable *sessions_by_uid;
+		GHashTable *sessions_by_user;
+	} ck;
+#endif
+
 };
 
 struct _NMSessionMonitorClass {
@@ -242,19 +251,19 @@ nm_session_monitor_init_systemd (NMSessionMonitor *monitor)
 	if (access("/run/systemd/seats/", F_OK) < 0)
 		return;
 
-	monitor->sd_source = sd_source_new ();
-	g_source_set_callback (monitor->sd_source, sessions_changed, monitor, NULL);
-	g_source_attach (monitor->sd_source, NULL);
+	monitor->sd.source = sd_source_new ();
+	g_source_set_callback (monitor->sd.source, sessions_changed, monitor, NULL);
+	g_source_attach (monitor->sd.source, NULL);
 }
 
 static void
 nm_session_monitor_finalize_systemd (NMSessionMonitor *monitor)
 {
-	if (!monitor->sd_source)
+	if (!monitor->sd.source)
 		return;
 
-	g_source_destroy (monitor->sd_source);
-	g_source_unref (monitor->sd_source);
+	g_source_destroy (monitor->sd.source);
+	g_source_unref (monitor->sd.source);
 }
 #endif /* SESSION_TRACKING_SYSTEMD */
 
@@ -349,13 +358,13 @@ session_merge (Session *src, Session *dest)
 static void
 free_database (NMSessionMonitor *self)
 {
-	if (self->database != NULL) {
-		g_key_file_free (self->database);
-		self->database = NULL;
+	if (self->ck.database != NULL) {
+		g_key_file_free (self->ck.database);
+		self->ck.database = NULL;
 	}
 
-	g_hash_table_remove_all (self->sessions_by_uid);
-	g_hash_table_remove_all (self->sessions_by_user);
+	g_hash_table_remove_all (self->ck.sessions_by_uid);
+	g_hash_table_remove_all (self->ck.sessions_by_user);
 }
 
 static gboolean
@@ -377,13 +386,13 @@ reload_database (NMSessionMonitor *self, GError **error)
 		             strerror (errno));
 		goto error;
 	}
-	self->database_mtime = statbuf.st_mtime;
+	self->ck.database_mtime = statbuf.st_mtime;
 
-	self->database = g_key_file_new ();
-	if (!g_key_file_load_from_file (self->database, CKDB_PATH, G_KEY_FILE_NONE, error))
+	self->ck.database = g_key_file_new ();
+	if (!g_key_file_load_from_file (self->ck.database, CKDB_PATH, G_KEY_FILE_NONE, error))
 		goto error;
 
-	groups = g_key_file_get_groups (self->database, &len);
+	groups = g_key_file_get_groups (self->ck.database, &len);
 	if (!groups) {
 		g_set_error_literal (error,
 		                     NM_SESSION_MONITOR_ERROR,
@@ -398,18 +407,18 @@ reload_database (NMSessionMonitor *self, GError **error)
 		if (!g_str_has_prefix (groups[i], "Session "))
 			continue;
 
-		session = session_new (self->database, groups[i], error);
+		session = session_new (self->ck.database, groups[i], error);
 		if (!session)
 			goto error;
 
-		found = g_hash_table_lookup (self->sessions_by_user, (gpointer) session->user);
+		found = g_hash_table_lookup (self->ck.sessions_by_user, (gpointer) session->user);
 		if (found) {
 			session_merge (session, found);
 			session_free (session);
 		} else {
 			/* Entirely new user */
-			g_hash_table_insert (self->sessions_by_user, (gpointer) session->user, session);
-			g_hash_table_insert (self->sessions_by_uid, GUINT_TO_POINTER (session->uid), session);
+			g_hash_table_insert (self->ck.sessions_by_user, (gpointer) session->user, session);
+			g_hash_table_insert (self->ck.sessions_by_uid, GUINT_TO_POINTER (session->uid), session);
 		}
 	}
 
@@ -428,7 +437,7 @@ ensure_database (NMSessionMonitor *self, GError **error)
 {
 	gboolean ret = FALSE;
 
-	if (self->database != NULL) {
+	if (self->ck.database != NULL) {
 		struct stat statbuf;
 
 		errno = 0;
@@ -441,7 +450,7 @@ ensure_database (NMSessionMonitor *self, GError **error)
 			goto out;
 		}
 
-		if (statbuf.st_mtime == self->database_mtime) {
+		if (statbuf.st_mtime == self->ck.database_mtime) {
 			ret = TRUE;
 			goto out;
 		}
@@ -476,7 +485,7 @@ nm_session_monitor_lookup_consolekit (NMSessionMonitor *monitor, uid_t uid, gboo
 	if (!ensure_database (monitor, error))
 		return FALSE;
 
-	session = g_hash_table_lookup (monitor->sessions_by_uid, GUINT_TO_POINTER (uid));
+	session = g_hash_table_lookup (monitor->ck.sessions_by_uid, GUINT_TO_POINTER (uid));
 	if (!session) {
 		g_set_error (error,
 		             NM_SESSION_MONITOR_ERROR,
@@ -499,9 +508,9 @@ nm_session_monitor_init_consolekit (NMSessionMonitor *monitor)
 	GFile *file;
 
 	/* Sessions-by-user is responsible for destroying the Session objects */
-	monitor->sessions_by_user = g_hash_table_new_full (g_str_hash, g_str_equal,
-	                                                   NULL, (GDestroyNotify) session_free);
-	monitor->sessions_by_uid = g_hash_table_new (g_direct_hash, g_direct_equal);
+	monitor->ck.sessions_by_user = g_hash_table_new_full (g_str_hash, g_str_equal,
+	                                                      NULL, (GDestroyNotify) session_free);
+	monitor->ck.sessions_by_uid = g_hash_table_new (g_direct_hash, g_direct_equal);
 
 	if (!ensure_database (monitor, &error)) {
 		/* Ignore the first error if the CK database isn't found yet */
@@ -514,13 +523,13 @@ nm_session_monitor_init_consolekit (NMSessionMonitor *monitor)
 	}
 
 	file = g_file_new_for_path (CKDB_PATH);
-	monitor->database_monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, &error);
+	monitor->ck.database_monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, &error);
 	g_object_unref (file);
-	if (monitor->database_monitor == NULL) {
+	if (monitor->ck.database_monitor == NULL) {
 		nm_log_err (LOGD_CORE, "Error monitoring " CKDB_PATH ": %s", error->message);
 		g_clear_error (&error);
 	} else {
-		g_signal_connect (monitor->database_monitor,
+		g_signal_connect (monitor->ck.database_monitor,
 		                  "changed",
 		                  G_CALLBACK (on_file_monitor_changed),
 		                  monitor);
@@ -530,7 +539,7 @@ nm_session_monitor_init_consolekit (NMSessionMonitor *monitor)
 static void
 nm_session_monitor_finalize_consolekit (NMSessionMonitor *monitor)
 {
-	g_object_unref (monitor->database_monitor);
+	g_object_unref (monitor->ck.database_monitor);
 	free_database (monitor);
 }
 #endif /* SESSION_TRACKING_CONSOLEKIT */
@@ -541,12 +550,12 @@ static gboolean
 nm_session_monitor_lookup (NMSessionMonitor *monitor, uid_t uid, gboolean active, GError **error)
 {
 #ifdef SESSION_TRACKING_SYSTEMD
-	if (monitor->sd_source)
+	if (monitor->sd.source)
 		return nm_session_monitor_lookup_systemd (uid, active, error);
 #endif
 
 #ifdef SESSION_TRACKING_CONSOLEKIT
-	if (monitor->database)
+	if (monitor->ck.database)
 		return nm_session_monitor_lookup_consolekit (monitor, uid, active, error);
 #endif
 
