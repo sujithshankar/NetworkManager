@@ -546,7 +546,8 @@ nm_session_monitor_lookup (NMSessionMonitor *monitor, uid_t uid, gboolean active
 #endif
 
 #ifdef SESSION_TRACKING_CONSOLEKIT
-	return nm_session_monitor_lookup_consolekit (monitor, uid, active, error);
+	if (monitor->database)
+		return nm_session_monitor_lookup_consolekit (monitor, uid, active, error);
 #endif
 
 	/* If no session tracking method is available, always give a positive
