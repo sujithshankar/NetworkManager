@@ -194,10 +194,10 @@ sd_source_finalize (GSource *source)
 }
 
 static GSourceFuncs sd_source_funcs = {
-	sd_source_prepare,
-	sd_source_check,
-	sd_source_dispatch,
-	sd_source_finalize
+	.prepare = sd_source_prepare,
+	.check = sd_source_check,
+	.dispatch = sd_source_dispatch,
+	.finalize = sd_source_finalize
 };
 
 static GSource *
