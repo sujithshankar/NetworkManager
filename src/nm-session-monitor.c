@@ -241,7 +241,7 @@ nm_session_monitor_init_systemd (NMSessionMonitor *monitor)
 {
 	if (access("/run/systemd/seats/", F_OK) < 0)
 		return;
-	
+
 	monitor->sd_source = sd_source_new ();
 	g_source_set_callback (monitor->sd_source, sessions_changed, monitor, NULL);
 	g_source_attach (monitor->sd_source, NULL);
@@ -252,7 +252,7 @@ nm_session_monitor_finalize_systemd (NMSessionMonitor *monitor)
 {
 	if (!monitor->sd_source)
 		return;
-	
+
 	g_source_destroy (monitor->sd_source);
 	g_source_unref (monitor->sd_source);
 }
@@ -500,7 +500,7 @@ nm_session_monitor_init_consolekit (NMSessionMonitor *monitor)
 
 	/* Sessions-by-user is responsible for destroying the Session objects */
 	monitor->sessions_by_user = g_hash_table_new_full (g_str_hash, g_str_equal,
-			NULL, (GDestroyNotify) session_free);
+	                                                   NULL, (GDestroyNotify) session_free);
 	monitor->sessions_by_uid = g_hash_table_new (g_direct_hash, g_direct_equal);
 
 	if (!ensure_database (monitor, &error)) {
