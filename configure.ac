@@ -321,20 +321,14 @@ AC_ARG_WITH(systemd-logind, AS_HELP_STRING([--with-systemd-logind=yes|no],
 	[Support systemd session tracking]))
 AC_ARG_WITH(consolekit, AS_HELP_STRING([--with-consolekit=yes|no],
 	[Support consolekit session tracking]))
-AC_ARG_WITH(fake-session, AS_HELP_STRING([--with-fake-session=yes|no],
-	[Any user is assumed to have a session]))
 # defaults
 AS_IF([test -z "$with_systemd_logind"], [with_systemd_logind="yes"])
 AS_IF([test -z "$with_consolekit"], [with_consolekit="yes"])
-AS_IF([test -z "$with_fake_session"], [with_fake_session="no"])
 # backwards compatibility
 AS_IF([test "$with_session_tracking" = "ck"], [with_consolekit="yes" with_systemd_login="no"])
 AS_IF([test "$with_session_tracking" = "consolekit"], [with_consolekit="yes" with_systemd_login="no"])
 AS_IF([test "$with_session_tracking" = "systemd"], [with_consolekit="no" with_systemd_login="yes"])
-AS_IF([test "$with_session_tracking" = "none"], [with_fake_session="yes"])
-AS_IF([test "$with_session_tracking" = "no"], [with_fake_session="yes"])
-# consistency
-AS_IF([test "$with_fake_session" = "yes"], [with_consolekit="no" with_systemd_login="no"])
+AS_IF([test "$with_session_tracking" = "none"], [with_consolekit="no" with_systemd_login="no"])
 # output
 session_tracking=
 if test "$with_systemd_logind" = "yes"; then
@@ -348,10 +342,6 @@ if test "$with_consolekit" = "yes"; then
 	AC_DEFINE([SESSION_TRACKING_CONSOLEKIT], 1, [Define to 1 if ConsoleKit is available])
 	AC_DEFINE([CKDB_PATH], "/var/run/ConsoleKit/database", [Path to ConsoleKit database])
 	session_tracking="$session_tracking, consolekit"
-fi
-if test "$with_fake_session" = "yes"; then
-	AC_DEFINE([SESSION_TRACKING_FAKE], 1, [Define to 1 if fake session tracking is used])
-	session_tracking="$session_tracking, fake"
 fi
 session_tracking=${session_tracking:2}
 

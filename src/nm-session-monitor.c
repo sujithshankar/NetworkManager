@@ -549,11 +549,11 @@ nm_session_monitor_lookup (NMSessionMonitor *monitor, uid_t uid, gboolean active
 	return nm_session_monitor_lookup_consolekit (monitor, uid, active, error);
 #endif
 
-#ifdef SESSION_TRACKING_FAKE
+	/* If no session tracking method is available, always give a positive
+	 * answer. Please note that this means session tracking cannot be used
+	 * for security purposes.
+	 */
 	return TRUE;
-#endif
-
-	return FALSE;
 }
 
 /**
