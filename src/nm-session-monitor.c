@@ -660,7 +660,6 @@ nm_session_monitor_get (void)
 
 	if (!singleton)
 		singleton = NM_SESSION_MONITOR (g_object_new (NM_TYPE_SESSION_MONITOR, NULL));
-	g_assert (singleton);
 
 	return singleton;
 }
