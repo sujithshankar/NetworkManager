@@ -106,48 +106,6 @@ nm_session_monitor_error_quark (void)
 
 /********************************************************************/
 
-gboolean
-nm_session_monitor_uid_to_user (uid_t uid, const char **out_user, GError **error)
-{
-	struct passwd *pw;
-
-	pw = getpwuid (uid);
-	if (!pw) {
-		g_set_error (error,
-			         NM_SESSION_MONITOR_ERROR,
-			         NM_SESSION_MONITOR_ERROR_UNKNOWN_USER,
-			         "Could not get username for UID %d",
-			         uid);
-		return FALSE;
-	}
-
-	if (out_user)
-		*out_user = pw->pw_name;
-	return TRUE;
-}
-
-static gboolean
-nm_session_monitor_user_to_uid (const char *user, uid_t *out_uid, GError **error)
-{
-	struct passwd *pw;
-
-	pw = getpwnam (user);
-	if (!pw) {
-		g_set_error (error,
-			         NM_SESSION_MONITOR_ERROR,
-			         NM_SESSION_MONITOR_ERROR_UNKNOWN_USER,
-			         "Could not get UID for username '%s'",
-			         user);
-		return FALSE;
-	}
-
-	if (out_uid)
-		*out_uid = pw->pw_uid;
-	return TRUE;
-}
-
-/********************************************************************/
-
 #ifdef SESSION_TRACKING_SYSTEMD
 typedef struct {
 	GSource source;
@@ -553,9 +511,31 @@ ck_finalize (NMSessionMonitor *monitor)
 
 /********************************************************************/
 
-static gboolean
-nm_session_monitor_lookup (NMSessionMonitor *monitor, uid_t uid, gboolean active, GError **error)
+gboolean
+nm_session_monitor_uid_to_user (uid_t uid, const char **out_user, GError **error)
 {
+	struct passwd *pw;
+
+	pw = getpwuid (uid);
+	if (!pw) {
+		g_set_error (error,
+			         NM_SESSION_MONITOR_ERROR,
+			         NM_SESSION_MONITOR_ERROR_UNKNOWN_USER,
+			         "Could not get username for UID %d",
+			         uid);
+		return FALSE;
+	}
+
+	if (out_user)
+		*out_user = pw->pw_name;
+	return TRUE;
+}
+
+static gboolean
+nm_session_monitor_lookup (uid_t uid, gboolean active, GError **error)
+{
+	NMSessionMonitor *monitor = nm_session_monitor_get ();
+
 #ifdef SESSION_TRACKING_SYSTEMD
 	if (monitor->sd.source)
 		return sd_lookup (uid, active, error);
@@ -574,83 +554,7 @@ nm_session_monitor_lookup (NMSessionMonitor *monitor, uid_t uid, gboolean active
 }
 
 /**
- * nm_session_monitor_user_has_session:
- * @monitor: A #NMSessionMonitor.
- * @username: A username.
- * @error: Return location for error.
- *
- * Checks whether the given @username is logged into a session or not.
- *
- * Returns: %FALSE if @error is set otherwise %TRUE if the given @username is
- * currently logged into a session.
- */
-gboolean
-nm_session_monitor_user_has_session (NMSessionMonitor *monitor,
-                                     const char *username,
-                                     uid_t *out_uid,
-                                     GError **error)
-{
-	uid_t uid;
-
-	if (!nm_session_monitor_user_to_uid (username, &uid, error))
-		return FALSE;
-
-	if (out_uid)
-		*out_uid = uid;
-
-	return nm_session_monitor_lookup (monitor, uid, FALSE, error);
-}
-
-/**
- * nm_session_monitor_uid_has_session:
- * @monitor: A #NMSessionMonitor.
- * @uid: A user ID.
- * @error: Return location for error.
- *
- * Checks whether the given @uid is logged into a session or not.
- *
- * Returns: %FALSE if @error is set otherwise %TRUE if the given @uid is
- * currently logged into a session.
- */
-gboolean
-nm_session_monitor_uid_has_session (NMSessionMonitor *monitor,
-                                    uid_t uid,
-                                    const char **out_user,
-                                    GError **error)
-{
-	if (out_user && !nm_session_monitor_uid_to_user (uid, out_user, error))
-		return FALSE;
-
-	return nm_session_monitor_lookup (monitor, uid, FALSE, error);
-}
-
-/**
- * nm_session_monitor_user_active:
- * @monitor: A #NMSessionMonitor.
- * @username: A username.
- * @error: Return location for error.
- *
- * Checks whether the given @username is logged into a active session or not.
- *
- * Returns: %FALSE if @error is set otherwise %TRUE if the given @username is
- * logged into an active session.
- */
-gboolean
-nm_session_monitor_user_active (NMSessionMonitor *monitor,
-                                const char *username,
-                                GError **error)
-{
-	uid_t uid;
-
-	if (!nm_session_monitor_user_to_uid (username, &uid, error))
-		return FALSE;
-
-	return nm_session_monitor_lookup (monitor, uid, TRUE, error);
-}
-
-/**
  * nm_session_monitor_uid_active:
- * @monitor: A #NMSessionMonitor.
  * @uid: A user ID.
  * @error: Return location for error.
  *
@@ -660,11 +564,9 @@ nm_session_monitor_user_active (NMSessionMonitor *monitor,
  * logged into an active session.
  */
 gboolean
-nm_session_monitor_uid_active (NMSessionMonitor *monitor,
-                               uid_t uid,
-                               GError **error)
+nm_session_monitor_uid_active (uid_t uid, GError **error)
 {
-	return nm_session_monitor_lookup (monitor, uid, TRUE, error);
+	return nm_session_monitor_lookup (uid, TRUE, error);
 }
 
 /********************************************************************/
@@ -678,6 +580,21 @@ nm_session_monitor_get (void)
 		singleton = NM_SESSION_MONITOR (g_object_new (NM_TYPE_SESSION_MONITOR, NULL));
 
 	return singleton;
+}
+
+gulong
+nm_session_monitor_connect (NMSessionCallback callback, gpointer user_data)
+{
+	return g_signal_connect (nm_session_monitor_get (),
+                             NM_SESSION_MONITOR_CHANGED,
+                             G_CALLBACK (callback),
+                             user_data);
+}
+
+void
+nm_session_monitor_disconnect (gulong handler_id)
+{
+	g_signal_handler_disconnect (nm_session_monitor_get (), handler_id);
 }
 
 static void

@@ -531,11 +531,9 @@ agent_compare_func (gconstpointer aa, gconstpointer bb, gpointer user_data)
 	}
 
 	/* Prefer agents in active sessions */
-	a_active = nm_session_monitor_uid_active (nm_session_monitor_get (),
-	                                          nm_secret_agent_get_owner_uid (a),
+	a_active = nm_session_monitor_uid_active (nm_secret_agent_get_owner_uid (a),
 	                                          NULL);
-	b_active = nm_session_monitor_uid_active (nm_session_monitor_get (),
-	                                          nm_secret_agent_get_owner_uid (b),
+	b_active = nm_session_monitor_uid_active (nm_secret_agent_get_owner_uid (b),
 	                                          NULL);
 	if (a_active && !b_active)
 		return -1;
