@@ -70,8 +70,6 @@ struct _NMSessionMonitor {
 
 struct _NMSessionMonitorClass {
 	GObjectClass parent_class;
-
-	void (*changed) (NMSessionMonitor *monitor);
 };
 
 G_DEFINE_TYPE (NMSessionMonitor, nm_session_monitor, G_TYPE_OBJECT);
@@ -636,12 +634,8 @@ nm_session_monitor_class_init (NMSessionMonitorClass *klass)
 	 * Emitted when something changes.
 	 */
 	signals[CHANGED] = g_signal_new (NM_SESSION_MONITOR_CHANGED,
-	                                        NM_TYPE_SESSION_MONITOR,
-	                                        G_SIGNAL_RUN_LAST,
-	                                        G_STRUCT_OFFSET (NMSessionMonitorClass, changed),
-	                                        NULL,                   /* accumulator      */
-	                                        NULL,                   /* accumulator data */
-	                                        g_cclosure_marshal_VOID__VOID,
-	                                        G_TYPE_NONE,
-	                                        0);
+	                                 NM_TYPE_SESSION_MONITOR,
+	                                 G_SIGNAL_RUN_LAST,
+	                                 0, NULL, NULL,
+	                                 NULL, G_TYPE_NONE, 0);
 }
