@@ -80,9 +80,6 @@ enum {
 
 static guint signals[LAST_SIGNAL] = {0};
 
-#define NM_SESSION_MONITOR_ERROR         (nm_session_monitor_error_quark ())
-GType  nm_session_monitor_error_get_type (void) G_GNUC_CONST;
-
 typedef enum {
 	NM_SESSION_MONITOR_ERROR_IO_ERROR = 0,       /*< nick=IOError >*/
 	NM_SESSION_MONITOR_ERROR_MALFORMED_DATABASE, /*< nick=MalformedDatabase >*/
@@ -100,6 +97,7 @@ nm_session_monitor_error_quark (void)
 
 	return quark;
 }
+#define NM_SESSION_MONITOR_ERROR (nm_session_monitor_error_quark ())
 
 /********************************************************************/
 
