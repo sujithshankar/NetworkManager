@@ -350,7 +350,7 @@ ck_reload_database (NMSessionMonitor *self, GError **error)
 	for (i = 0; i < len; i++) {
 		CkSession *found;
 
-		if (!g_str_has_prefix (groups[i], "CkSession "))
+		if (!g_str_has_prefix (groups[i], "Session "))
 			continue;
 
 		session = ck_session_new (self->ck.database, groups[i], error);
