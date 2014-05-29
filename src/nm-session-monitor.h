@@ -48,9 +48,7 @@ gulong            nm_session_monitor_connect      (NMSessionCallback callback,
                                                    gpointer user_data);
 void              nm_session_monitor_disconnect   (gulong handler_id);
 
-gboolean          nm_session_monitor_uid_to_user  (uid_t uid,
-                                                   const char **out_user,
-                                                   GError **error);
+const char *      nm_session_monitor_uid_to_user  (uid_t uid, GError **error);
 gboolean          nm_session_monitor_uid_active   (uid_t uid,
                                                    GError **error);
 

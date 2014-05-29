@@ -285,7 +285,8 @@ ck_session_new (GKeyFile *keyfile, const char *group, GError **error)
 	if (local)
 		goto error;
 
-	if (!nm_session_monitor_uid_to_user (session->uid, &uname, error))
+	uname = nm_session_monitor_uid_to_user (session->uid, error);
+	if (!uname)
 		return FALSE;
 	session->user = g_strdup (uname);
 
@@ -507,8 +508,8 @@ ck_finalize (NMSessionMonitor *monitor)
 
 /********************************************************************/
 
-gboolean
-nm_session_monitor_uid_to_user (uid_t uid, const char **out_user, GError **error)
+const char *
+nm_session_monitor_uid_to_user (uid_t uid, GError **error)
 {
 	struct passwd *pw;
 
@@ -519,12 +520,10 @@ nm_session_monitor_uid_to_user (uid_t uid, const char **out_user, GError **error
 			         NM_SESSION_MONITOR_ERROR_UNKNOWN_USER,
 			         "Could not get username for UID %d",
 			         uid);
-		return FALSE;
+		return NULL;
 	}
 
-	if (out_user)
-		*out_user = pw->pw_name;
-	return TRUE;
+	return pw->pw_name;
 }
 
 static gboolean

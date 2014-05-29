@@ -442,7 +442,8 @@ nm_auth_is_subject_in_acl (NMConnection *connection,
 		return TRUE;
 
 	/* Reject the request if the request comes from no session at all */
-	if (!nm_session_monitor_uid_to_user (uid, &user, &local) || !user) {
+	user = nm_session_monitor_uid_to_user (uid, &local);
+	if (!user) {
 		if (out_error_desc)
 			*out_error_desc = g_strdup_printf ("Could not determine username for uid %lu (%s)",
 			                                   uid,
