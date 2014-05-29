@@ -183,9 +183,7 @@ sd_source_new (void)
 static gboolean
 sd_sessions_changed (gpointer user_data)
 {
-	NMSessionMonitor *monitor = NM_SESSION_MONITOR (user_data);
-
-	g_signal_emit (monitor, signals[CHANGED], 0);
+	g_signal_emit (NM_SESSION_MONITOR (user_data), signals[CHANGED], 0);
 	return TRUE;
 }
 
