@@ -616,8 +616,7 @@ nm_session_monitor_finalize (GObject *object)
 	ck_finalize (NM_SESSION_MONITOR (object));
 #endif
 
-	if (G_OBJECT_CLASS (nm_session_monitor_parent_class)->finalize != NULL)
-		G_OBJECT_CLASS (nm_session_monitor_parent_class)->finalize (object);
+	G_OBJECT_CLASS (nm_session_monitor_parent_class)->finalize (object);
 }
 
 static void
