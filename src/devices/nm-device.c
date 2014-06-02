@@ -378,6 +378,7 @@ nm_device_init (NMDevice *self)
 	priv->dhcp_timeout = 0;
 	priv->rfkill_type = RFKILL_TYPE_UNKNOWN;
 	priv->autoconnect = DEFAULT_AUTOCONNECT;
+	priv->unmanaged_flags = NM_UNMANAGED_INTERNAL;
 	priv->available_connections = g_hash_table_new_full (g_direct_hash, g_direct_equal, g_object_unref, NULL);
 	priv->ip6_saved_properties = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_free);
 }
@@ -1018,8 +1019,6 @@ carrier_changed (NMDevice *device, gboolean carrier)
 	}
 
 	if (carrier) {
-		g_warn_if_fail (priv->state >= NM_DEVICE_STATE_UNAVAILABLE);
-
 		if (priv->state == NM_DEVICE_STATE_UNAVAILABLE) {
 			nm_device_queue_state (device, NM_DEVICE_STATE_DISCONNECTED,
 			                       NM_DEVICE_STATE_REASON_CARRIER);
@@ -1032,8 +1031,6 @@ carrier_changed (NMDevice *device, gboolean carrier)
 			nm_device_emit_recheck_auto_activate (device);
 		}
 	} else {
-		g_return_if_fail (priv->state >= NM_DEVICE_STATE_UNAVAILABLE);
-
 		if (priv->state == NM_DEVICE_STATE_UNAVAILABLE) {
 			if (nm_device_queued_state_peek (device) >= NM_DEVICE_STATE_DISCONNECTED)
 				nm_device_queued_state_clear (device);
@@ -7180,7 +7177,7 @@ nm_device_get_managed (NMDevice *device)
 	 */
 	managed = !(priv->unmanaged_flags & ~NM_UNMANAGED_DEFAULT);
 	if (managed && (priv->unmanaged_flags & NM_UNMANAGED_DEFAULT))
-		managed = (priv->state != NM_DEVICE_STATE_UNMANAGED);
+		managed = (priv->state > NM_DEVICE_STATE_UNMANAGED);
 
 	return managed;
 }
