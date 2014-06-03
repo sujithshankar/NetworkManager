@@ -450,11 +450,18 @@ nm_log_handler (const gchar *log_domain,
 		syslog_priority = LOG_NOTICE;
 		nm_level = LOGL_INFO;
 		break;
+	case G_LOG_LEVEL_INFO:
+		/* we log INFO with syslog priority LOG_INFO, but it corresponds
+		 * to nm_level LOGL_DEBUG, because it will be suppressed by default
+		 * by glib similar to G_LOG_LEVEL_DEBUG.
+		 * */
+		syslog_priority = LOG_INFO;
+		nm_level = LOGL_DEBUG;
+		break;
 	case G_LOG_LEVEL_DEBUG:
 		syslog_priority = LOG_DEBUG;
 		nm_level = LOGL_DEBUG;
 		break;
-	case G_LOG_LEVEL_INFO:
 	default:
 		syslog_priority = LOG_INFO;
 		nm_level = LOGL_INFO;
