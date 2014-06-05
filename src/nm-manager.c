@@ -129,7 +129,7 @@ static void impl_manager_check_connectivity (NMManager *manager,
 #include "nm-manager-glue.h"
 
 static void add_device (NMManager *self, NMDevice *device, gboolean generate_con);
-static void remove_device (NMManager *self, NMDevice *device, gboolean quitting);
+static void remove_device (NMManager *self, NMDevice *device, gboolean quitting, gboolean take_down);
 
 static NMActiveConnection *_new_active_connection (NMManager *self,
                                                    NMConnection *connection,
@@ -722,7 +722,7 @@ device_has_pending_action_changed (NMDevice *device,
 }
 
 static void
-remove_device (NMManager *manager, NMDevice *device, gboolean quitting)
+remove_device (NMManager *manager, NMDevice *device, gboolean quitting, gboolean take_down)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (manager);
 
@@ -736,11 +736,12 @@ remove_device (NMManager *manager, NMDevice *device, gboolean quitting)
 		if (   !nm_device_can_assume_connections (device)
 		    || (nm_device_get_state (device) != NM_DEVICE_STATE_ACTIVATED)
 		    || !quitting) {
-				NMActRequest *req = nm_device_get_act_request (device);
+			NMActRequest *req = nm_device_get_act_request (device);
 
-				if (!req || !nm_active_connection_get_assumed (NM_ACTIVE_CONNECTION (req)))
-					nm_device_set_unmanaged (device, NM_UNMANAGED_INTERNAL, TRUE, NM_DEVICE_STATE_REASON_REMOVED);
-			}
+			if (   take_down
+			    || !req || !nm_active_connection_get_assumed (NM_ACTIVE_CONNECTION (req)))
+				nm_device_set_unmanaged (device, NM_UNMANAGED_INTERNAL, TRUE, NM_DEVICE_STATE_REASON_REMOVED);
+		}
 	}
 
 	g_signal_handlers_disconnect_matched (device, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, manager);
@@ -761,7 +762,7 @@ remove_device (NMManager *manager, NMDevice *device, gboolean quitting)
 static void
 device_removed_cb (NMDevice *device, gpointer user_data)
 {
-	remove_device (NM_MANAGER (user_data), device, FALSE);
+	remove_device (NM_MANAGER (user_data), device, FALSE, TRUE);
 }
 
 static void
@@ -1624,7 +1625,7 @@ add_device (NMManager *self, NMDevice *device, gboolean generate_con)
 			remove = g_slist_prepend (remove, iter->data);
 	}
 	for (iter = remove; iter; iter = iter->next)
-		remove_device (self, NM_DEVICE (iter->data), FALSE);
+		remove_device (self, NM_DEVICE (iter->data), FALSE, FALSE);
 	g_slist_free (remove);
 
 	priv->devices = g_slist_append (priv->devices, g_object_ref (device));
@@ -2043,7 +2044,7 @@ platform_link_cb (NMPlatform *platform,
 
 		device = find_device_by_ifindex (self, ifindex);
 		if (device)
-			remove_device (self, device, FALSE);
+			remove_device (self, device, FALSE, TRUE);
 		break;
 	 }
 	 default:
@@ -4846,7 +4847,7 @@ dispose (GObject *object)
 
 	/* Remove all devices */
 	while (priv->devices)
-		remove_device (manager, NM_DEVICE (priv->devices->data), TRUE);
+		remove_device (manager, NM_DEVICE (priv->devices->data), TRUE, FALSE);
 
 	if (priv->ac_cleanup_id) {
 		g_source_remove (priv->ac_cleanup_id);
