@@ -83,6 +83,7 @@ GQuark nm_device_error_quark (void);
 #define NM_DEVICE_PRODUCT "product"
 #define NM_DEVICE_PHYSICAL_PORT_ID "physical-port-id"
 #define NM_DEVICE_MTU "mtu"
+#define NM_DEVICE_IS_SOFTWARE "is-software"
 
 typedef struct {
 	NMObject parent;
@@ -144,6 +145,8 @@ NM_AVAILABLE_IN_0_9_10
 const char *         nm_device_get_physical_port_id (NMDevice *device);
 NM_AVAILABLE_IN_0_9_10
 guint32              nm_device_get_mtu              (NMDevice *device);
+NM_AVAILABLE_IN_1_0
+gboolean             nm_device_is_software          (NMDevice *device);
 
 const char *         nm_device_get_product           (NMDevice  *device);
 const char *         nm_device_get_vendor            (NMDevice  *device);

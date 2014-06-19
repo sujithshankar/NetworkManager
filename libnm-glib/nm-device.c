@@ -834,6 +834,7 @@ nm_device_class_init (NMDeviceClass *device_class)
 		                    G_PARAM_READABLE |
 		                    G_PARAM_STATIC_STRINGS));
 
+
 	/* signals */
 
 	/**
@@ -2065,6 +2066,25 @@ nm_device_get_mtu (NMDevice *device)
 
 	_nm_object_ensure_inited (NM_OBJECT (device));
 	return NM_DEVICE_GET_PRIVATE (device)->mtu;
+}
+
+/**
+ * nm_device_is_software:
+ * @device: a #NMDevice
+ *
+ * Whether the device is a software device.
+ *
+ * Returns: %TRUE if @device is a software device, %FALSE if it is a hardware device.
+ *
+ * Since: 1.0
+ **/
+gboolean
+nm_device_is_software (NMDevice *device)
+{
+	g_return_val_if_fail (NM_IS_DEVICE (device), FALSE);
+
+	_nm_object_ensure_inited (NM_OBJECT (device));
+	return !!(NM_DEVICE_GET_PRIVATE (device)->capabilities & NM_DEVICE_CAP_IS_SOFTWARE);
 }
 
 typedef struct {
