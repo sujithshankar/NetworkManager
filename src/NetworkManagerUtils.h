@@ -43,6 +43,12 @@ int nm_spawn_process (const char *args);
 /* macro to return strlen() of a compile time string. */
 #define STRLEN(str)     ( sizeof ("" str) - 1 )
 
+static inline const char *
+NON_NULL (const char *str)
+{
+	return str ? str : "(none)";
+}
+
 gboolean nm_match_spec_string (const GSList *specs, const char *string);
 gboolean nm_match_spec_hwaddr (const GSList *specs, const char *hwaddr);
 gboolean nm_match_spec_s390_subchannels (const GSList *specs, const char *subchannels);
