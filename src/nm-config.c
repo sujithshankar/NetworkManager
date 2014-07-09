@@ -28,6 +28,7 @@
 #include "nm-utils.h"
 #include "nm-glib-compat.h"
 #include "nm-device.h"
+#include "NetworkManagerUtils.h"
 
 #include <gio/gio.h>
 #include <glib/gi18n.h>
@@ -75,6 +76,14 @@ typedef struct {
 	char **no_auto_default;
 	char **ignore_carrier;
 } NMConfigPrivate;
+
+enum {
+	SIGNAL_CONFIG_CHANGED,
+
+	LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
 
 G_DEFINE_TYPE (NMConfig, nm_config, G_TYPE_OBJECT)
 
@@ -477,6 +486,70 @@ find_base_config (NMConfig *config, GError **error)
 
 /************************************************************************/
 
+void
+nm_config_reload (NMConfig *self)
+{
+	NMConfigPrivate *priv;
+	NMConfig *new;
+	GError *error = NULL;
+	GHashTable *changes;
+	NMConfigData *old_data;
+	NMConfigData *new_data = NULL;
+
+	g_return_if_fail (NM_IS_CONFIG (self));
+
+	priv = NM_CONFIG_GET_PRIVATE (self);
+
+	/* pass on the original command line options. This means, that
+	 * options specified at command line cannot ever be reloaded from
+	 * file. That seems desirable.
+	 */
+	new = nm_config_new (&priv->cli, &error);
+
+	if (!new) {
+		nm_log_err (LOGD_CORE, "Failed to reload the configuration: %s", error->message);
+		g_clear_error (&error);
+		return;
+	}
+
+	old_data = priv->config_data;
+	new_data = nm_config_get_data (new);
+
+	changes = g_hash_table_new (g_str_hash, g_str_equal);
+
+	/* reloading configuration means we have to carefully check every single option
+	 * that we want to support and take specific actions. */
+
+	/* FIXME: no actual reloading implemented yet */
+
+	if (g_hash_table_size (changes))
+		new_data = g_object_ref (new_data);
+	else
+		new_data = NULL;
+
+	g_object_unref (new);
+
+	if (new_data) {
+		/* @new_data was owned by @new, but we want to assign it to @self.
+		 * Normally we dislike modifying NMConfigData and we actually should clone
+		 * the NMConfigData instance. However, nobody holds a reference to
+		 * @new_data, so lets just reset config. Nobody will notice.
+		 */
+		g_assert (!nm_config_data_get_config (new_data));
+		g_assert (nm_utils_g_object_has_exclusive_ref (G_OBJECT (new_data)));
+
+		_nm_config_data_set_config (new_data, self);
+		g_assert (self == nm_config_data_get_config (new_data));
+
+		old_data = priv->config_data;
+		priv->config_data = new_data;
+		g_signal_emit (self, signals[SIGNAL_CONFIG_CHANGED], 0, changes, old_data);
+		g_object_unref (old_data);
+	}
+
+	g_hash_table_destroy (changes);
+}
+
 static NMConfig *singleton = NULL;
 
 NMConfig *
@@ -681,5 +754,13 @@ nm_config_class_init (NMConfigClass *config_class)
 
 	g_type_class_add_private (config_class, sizeof (NMConfigPrivate));
 	object_class->finalize = finalize;
+
+	signals[SIGNAL_CONFIG_CHANGED] =
+	    g_signal_new (NM_CONFIG_SIGNAL_CONFIG_CHANGED,
+	                  G_OBJECT_CLASS_TYPE (object_class),
+	                  G_SIGNAL_RUN_FIRST,
+	                  G_STRUCT_OFFSET (NMConfigClass, config_changed),
+	                  NULL, NULL, NULL,
+	                  G_TYPE_NONE, 2, G_TYPE_HASH_TABLE, NM_TYPE_CONFIG_DATA);
 }
 
