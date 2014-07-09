@@ -64,6 +64,8 @@
 #define NM_DEFAULT_PID_FILE          NMRUNDIR "/NetworkManager.pid"
 #define NM_DEFAULT_SYSTEM_STATE_FILE NMSTATEDIR "/NetworkManager.state"
 
+static gboolean _handle_signal (gpointer user_data);
+
 /*
  * Globals
  */
@@ -96,7 +98,7 @@ signal_handling_thread (void *arg)
 			break;
 		case SIGHUP:
 			/* Reread config stuff like system config files, VPN service files, etc */
-			nm_log_info (LOGD_CORE, "caught signal %d, not supported yet.", signo);
+			g_idle_add (_handle_signal, GINT_TO_POINTER (signo));
 			break;
 		default:
 			nm_log_err (LOGD_CORE, "caught unexpected signal %d", signo);
@@ -214,6 +216,18 @@ done:
 	g_free (proc_cmdline);
 	g_free (contents);
 	return nm_running;
+}
+
+static gboolean
+_handle_signal (gpointer user_data)
+{
+	int signo = GPOINTER_TO_INT (user_data);
+
+	g_assert (signo == SIGHUP);
+
+	nm_log_info (LOGD_CORE, "caught signal %d, not supported yet.", signo);
+
+	return G_SOURCE_REMOVE;
 }
 
 static gboolean
