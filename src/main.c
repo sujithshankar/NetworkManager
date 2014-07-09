@@ -332,7 +332,6 @@ _init_nm_debug (const char *debug)
 int
 main (int argc, char *argv[])
 {
-	GOptionContext *opt_ctx = NULL;
 	char *opt_log_level = NULL;
 	char *opt_log_domains = NULL;
 	gboolean become_daemon = TRUE, run_from_build_dir = FALSE;
@@ -356,6 +355,7 @@ main (int argc, char *argv[])
 	GError *error = NULL;
 	gboolean wrote_pidfile = FALSE;
 	char *bad_domains = NULL;
+	NMConfigCmdLineOptions *config_cli;
 
 	GOptionEntry options[] = {
 		{ "version", 'V', 0, G_OPTION_ARG_NONE, &show_version, N_("Print NetworkManager version and exit"), NULL },
@@ -412,19 +412,24 @@ main (int argc, char *argv[])
 		}
 	}
 
+	config_cli = nm_config_cmd_line_options_new ();
 	/* Parse options */
-	opt_ctx = g_option_context_new (NULL);
-	g_option_context_set_translation_domain (opt_ctx, GETTEXT_PACKAGE);
-	g_option_context_set_ignore_unknown_options (opt_ctx, FALSE);
-	g_option_context_set_help_enabled (opt_ctx, TRUE);
-	g_option_context_add_main_entries (opt_ctx, options, NULL);
-	g_option_context_add_main_entries (opt_ctx, nm_config_get_options (), NULL);
+	{
+		GOptionContext *opt_ctx = NULL;
 
-	g_option_context_set_summary (opt_ctx,
-		_("NetworkManager monitors all network connections and automatically\nchooses the best connection to use.  It also allows the user to\nspecify wireless access points which wireless cards in the computer\nshould associate with."));
+		opt_ctx = g_option_context_new (NULL);
+		g_option_context_set_translation_domain (opt_ctx, GETTEXT_PACKAGE);
+		g_option_context_set_ignore_unknown_options (opt_ctx, FALSE);
+		g_option_context_set_help_enabled (opt_ctx, TRUE);
+		g_option_context_add_main_entries (opt_ctx, options, NULL);
+		nm_config_cmd_line_options_add_to_entries (config_cli, opt_ctx);
 
-	success = g_option_context_parse (opt_ctx, &argc, &argv, &error);
-	g_option_context_free (opt_ctx);
+		g_option_context_set_summary (opt_ctx,
+		   _("NetworkManager monitors all network connections and automatically\nchooses the best connection to use.  It also allows the user to\nspecify wireless access points which wireless cards in the computer\nshould associate with."));
+
+		success = g_option_context_parse (opt_ctx, &argc, &argv, &error);
+		g_option_context_free (opt_ctx);
+	}
 
 	if (!success) {
 		fprintf (stderr, _("%s.  Please use --help to see a list of valid options.\n"),
@@ -497,7 +502,9 @@ main (int argc, char *argv[])
 		exit (1);
 
 	/* Read the config file and CLI overrides */
-	config = nm_config_new (&error);
+	config = nm_config_setup (config_cli, &error);
+	nm_config_cmd_line_options_free (config_cli);
+	config_cli = NULL;
 	if (config == NULL) {
 		fprintf (stderr, _("Failed to read configuration: (%d) %s\n"),
 		         error ? error->code : -1,
