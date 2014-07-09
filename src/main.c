@@ -179,7 +179,12 @@ _init_nm_debug (const char *debug)
 void
 nm_main_config_reload ()
 {
-	nm_log_info (LOGD_CORE, "reloading configuration not supported.");
+	NMConfig *config = nm_config_try_get ();
+
+	if (config) {
+		nm_log_info (LOGD_CORE, "reload configuration...");
+		nm_config_reload (config);
+	}
 }
 
 static void
