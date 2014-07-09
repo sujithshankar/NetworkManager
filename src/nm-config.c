@@ -28,6 +28,7 @@
 #include "nm-utils.h"
 #include "nm-glib-compat.h"
 #include "nm-device.h"
+#include "NetworkManagerUtils.h"
 
 #include <gio/gio.h>
 #include <glib/gi18n.h>
@@ -53,6 +54,14 @@ typedef struct {
 	/* Changes when configuration is reloaded */
 	NMConfigData *config_data;
 } NMConfigPrivate;
+
+enum {
+	SIGNAL_CONFIG_CHANGED,
+
+	LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
 
 static NMConfig *singleton = NULL;
 
@@ -300,9 +309,8 @@ nm_config_get_options (void)
 /************************************************************************/
 
 static gboolean
-read_config (NMConfig *config, const char *path, GError **error)
+read_config (GKeyFile *keyfile, const char *path, GError **error)
 {
-	NMConfigPrivate *priv = NM_CONFIG_GET_PRIVATE (config);
 	GKeyFile *kf;
 	char **groups, **keys;
 	gsize ngroups, nkeys;
@@ -332,22 +340,22 @@ read_config (NMConfig *config, const char *path, GError **error)
 			int len = strlen (keys[k]);
 			if (keys[k][len - 1] == '+') {
 				char *base_key = g_strndup (keys[k], len - 1);
-				const char *old_val = g_key_file_get_value (priv->keyfile, groups[g], base_key, NULL);
+				const char *old_val = g_key_file_get_value (keyfile, groups[g], base_key, NULL);
 				const char *new_val = g_key_file_get_value (kf, groups[g], keys[k], NULL);
 
 				if (old_val && *old_val) {
 					char *combined = g_strconcat (old_val, ",", new_val, NULL);
 
-					g_key_file_set_value (priv->keyfile, groups[g], base_key, combined);
+					g_key_file_set_value (keyfile, groups[g], base_key, combined);
 					g_free (combined);
 				} else
-					g_key_file_set_value (priv->keyfile, groups[g], base_key, new_val);
+					g_key_file_set_value (keyfile, groups[g], base_key, new_val);
 
 				g_free (base_key);
 				continue;
 			}
 
-			g_key_file_set_value (priv->keyfile, groups[g], keys[k],
+			g_key_file_set_value (keyfile, groups[g], keys[k],
 			                      g_key_file_get_value (kf, groups[g], keys[k], NULL));
 		}
 	}
@@ -365,7 +373,7 @@ find_base_config (NMConfig *config, GError **error)
 	/* Try a user-specified config file first */
 	if (cli_config_path) {
 		/* Bad user-specific config file path is a hard error */
-		if (read_config (config, cli_config_path, error)) {
+		if (read_config (priv->keyfile, cli_config_path, error)) {
 			priv->nm_conf_path = g_strdup (cli_config_path);
 			return TRUE;
 		} else
@@ -380,7 +388,7 @@ find_base_config (NMConfig *config, GError **error)
 	 */
 
 	/* Try deprecated nm-system-settings.conf first */
-	if (read_config (config, NM_OLD_SYSTEM_CONF_FILE, &my_error)) {
+	if (read_config (priv->keyfile, NM_OLD_SYSTEM_CONF_FILE, &my_error)) {
 		priv->nm_conf_path = g_strdup (NM_OLD_SYSTEM_CONF_FILE);
 		return TRUE;
 	}
@@ -393,7 +401,7 @@ find_base_config (NMConfig *config, GError **error)
 	g_clear_error (&my_error);
 
 	/* Try the standard config file location next */
-	if (read_config (config, NM_DEFAULT_SYSTEM_CONF_FILE, &my_error)) {
+	if (read_config (priv->keyfile, NM_DEFAULT_SYSTEM_CONF_FILE, &my_error)) {
 		priv->nm_conf_path = g_strdup (NM_DEFAULT_SYSTEM_CONF_FILE);
 		return TRUE;
 	}
@@ -418,13 +426,6 @@ find_base_config (NMConfig *config, GError **error)
 
 /************************************************************************/
 
-NMConfig *
-nm_config_get (void)
-{
-	g_assert (singleton);
-	return singleton;
-}
-
 static int
 sort_asciibetically (gconstpointer a, gconstpointer b)
 {
@@ -434,13 +435,14 @@ sort_asciibetically (gconstpointer a, gconstpointer b)
 	return strcmp (s1, s2);
 }
 
-/* call this function only once! */
-NMConfig *
-nm_config_new (const char *cli_log_level,
-               const char *cli_log_domains,
-               GError **error)
+/* Updates keyfile with new merged values from config files */
+static gboolean
+reload_config_files (GKeyFile *keyfile,
+                     const char *conf_path,
+                     const char *config_dir,
+                     char **out_config_description,
+                     GError **error)
 {
-	NMConfigPrivate *priv = NULL;
 	GFile *dir;
 	GFileEnumerator *direnum;
 	GFileInfo *info;
@@ -448,6 +450,109 @@ nm_config_new (const char *cli_log_level,
 	const char *name;
 	int i;
 	GString *config_description;
+	gboolean success = TRUE;
+
+	confs = g_ptr_array_new_with_free_func (g_free);
+	config_description = g_string_new (conf_path);
+	dir = g_file_new_for_path (config_dir);
+	direnum = g_file_enumerate_children (dir, G_FILE_ATTRIBUTE_STANDARD_NAME, 0, NULL, NULL);
+	if (direnum) {
+		while ((info = g_file_enumerator_next_file (direnum, NULL, NULL))) {
+			name = g_file_info_get_name (info);
+			if (g_str_has_suffix (name, ".conf")) {
+				g_ptr_array_add (confs, g_build_filename (config_dir, name, NULL));
+				if (confs->len == 1)
+					g_string_append (config_description, " and conf.d: ");
+				else
+					g_string_append (config_description, ", ");
+				g_string_append (config_description, name);
+			}
+			g_object_unref (info);
+		}
+		g_object_unref (direnum);
+	}
+	g_object_unref (dir);
+
+	g_ptr_array_sort (confs, sort_asciibetically);
+	if (out_config_description)
+		*out_config_description = g_string_free (config_description, FALSE);
+	else
+		g_string_free (config_description, TRUE);
+
+	for (i = 0; i < confs->len; i++) {
+		if (!read_config (keyfile, confs->pdata[i], error)) {
+			success = FALSE;
+			break;
+		}
+	}
+	g_ptr_array_unref (confs);
+	return success;
+}
+
+void
+nm_config_reload (NMConfig *self)
+{
+	NMConfigPrivate *priv;
+	GError *error = NULL;
+	GHashTable *changes;
+	NMConfigData *new_data = NULL;
+	GKeyFile *new_kf;
+	char *config_desc = NULL;
+
+	g_return_if_fail (NM_IS_CONFIG (self));
+
+	priv = NM_CONFIG_GET_PRIVATE (self);
+
+	new_kf = g_key_file_new ();
+	g_key_file_set_list_separator (new_kf, ',');
+	if (!reload_config_files (new_kf,
+	                          priv->nm_conf_path,
+	                          priv->config_dir,
+	                          &config_desc,
+	                          &error))
+		goto fail;
+
+	new_data = nm_config_data_new_keyfile (new_kf, priv->cli_data, &error);
+	if (!new_data)
+		goto fail;
+
+	changes = nm_config_data_diff (priv->config_data, new_data);
+	if (g_hash_table_size (changes)) {
+		NMConfigData *old_data = priv->config_data;
+
+		g_object_unref (priv->keyfile);
+		priv->keyfile = new_kf;
+		g_free (priv->config_description);
+		priv->config_description = config_desc;
+
+		priv->config_data = new_data;
+		g_signal_emit (self, signals[SIGNAL_CONFIG_CHANGED], 0, changes, old_data);
+		g_object_unref (old_data);
+	} else {
+		g_key_file_unref (new_kf);
+		g_object_unref (new_data);
+		g_free (config_desc);
+	}
+	g_hash_table_destroy (changes);
+	return;
+
+fail:
+	if (error) {
+		nm_log_warn (LOGD_SETTINGS, "failed to read configuation: (%s) %s",
+		             g_quark_to_string (error->domain), error->message);
+		g_error_free (error);
+	}
+	g_key_file_unref (new_kf);
+	g_free (config_desc);
+}
+
+/* call this function only once! */
+NMConfig *
+nm_config_new (const char *cli_log_level,
+               const char *cli_log_domains,
+               GError **error)
+{
+	NMConfigPrivate *priv;
 
 	g_assert (!singleton);
 	singleton = NM_CONFIG (g_object_new (NM_TYPE_CONFIG, NULL));
@@ -468,39 +573,18 @@ nm_config_new (const char *cli_log_level,
 	else
 		priv->config_dir = g_strdup (NM_DEFAULT_SYSTEM_CONF_DIR);
 
-	confs = g_ptr_array_new_with_free_func (g_free);
-	config_description = g_string_new (priv->nm_conf_path);
-	dir = g_file_new_for_path (priv->config_dir);
-	direnum = g_file_enumerate_children (dir, G_FILE_ATTRIBUTE_STANDARD_NAME, 0, NULL, NULL);
-	if (direnum) {
-		while ((info = g_file_enumerator_next_file (direnum, NULL, NULL))) {
-			name = g_file_info_get_name (info);
-			if (g_str_has_suffix (name, ".conf")) {
-				g_ptr_array_add (confs, g_build_filename (priv->config_dir, name, NULL));
-				if (confs->len == 1)
-					g_string_append (config_description, " and conf.d: ");
-				else
-					g_string_append (config_description, ", ");
-				g_string_append (config_description, name);
-			}
-			g_object_unref (info);
-		}
-		g_object_unref (direnum);
-	}
-	g_object_unref (dir);
+	if (!reload_config_files (priv->keyfile,
+	                          priv->nm_conf_path,
+	                          priv->config_dir,
+	                          &priv->config_description,
+	                          error))
+		goto fail;
 
-	g_ptr_array_sort (confs, sort_asciibetically);
-	priv->config_description = g_string_free (config_description, FALSE);
-	for (i = 0; i < confs->len; i++) {
-		if (!read_config (singleton, confs->pdata[i], error)) {
-			g_object_unref (singleton);
-			singleton = NULL;
-			break;
-		}
-	}
-	g_ptr_array_unref (confs);
-	if (!singleton)
-		return NULL;
+	priv->config_data = nm_config_data_new_keyfile (priv->keyfile,
+	                                                priv->cli_data,
+	                                                error);
+	if (!priv->config_data)
+		goto fail;
 
 	/* Handle no-auto-default key and state file */
 	priv->no_auto_default = g_key_file_get_string_list (priv->keyfile, "main", "no-auto-default", NULL, NULL);
@@ -512,18 +596,19 @@ nm_config_new (const char *cli_log_level,
 
 	priv->ignore_carrier = g_key_file_get_string_list (priv->keyfile, "main", "ignore-carrier", NULL, NULL);
 
-	priv->config_data = nm_config_data_new_keyfile (priv->keyfile,
-	                                                priv->cli_data,
-	                                                error);
-	if (!priv->config_data)
-		goto fail;
-
 	return singleton;
 
 fail:
 	g_object_unref (singleton);
 	singleton = NULL;
 	return NULL;
+}
+
+NMConfig *
+nm_config_get (void)
+{
+	g_assert (singleton);
+	return singleton;
 }
 
 static void
@@ -576,5 +661,13 @@ nm_config_class_init (NMConfigClass *config_class)
 	g_type_class_add_private (config_class, sizeof (NMConfigPrivate));
 	object_class->dispose = dispose;
 	object_class->finalize = finalize;
+
+	signals[SIGNAL_CONFIG_CHANGED] =
+	    g_signal_new (NM_CONFIG_SIGNAL_CONFIG_CHANGED,
+	                  G_OBJECT_CLASS_TYPE (object_class),
+	                  G_SIGNAL_RUN_FIRST,
+	                  G_STRUCT_OFFSET (NMConfigClass, config_changed),
+	                  NULL, NULL, NULL,
+	                  G_TYPE_NONE, 2, G_TYPE_HASH_TABLE, NM_TYPE_CONFIG_DATA);
 }
 

@@ -37,12 +37,18 @@ G_BEGIN_DECLS
 #define NM_IS_CONFIG_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass),  NM_TYPE_CONFIG))
 #define NM_CONFIG_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj),  NM_TYPE_CONFIG, NMConfigClass))
 
+/* Signals */
+#define NM_CONFIG_SIGNAL_CONFIG_CHANGED             "config-changed"
+
 typedef struct {
 	GObject parent;
 } NMConfig;
 
 typedef struct {
 	GObjectClass parent;
+
+	/* Signals */
+	void (*config_changed) (NMConfig *config, GHashTable *changes, NMConfigData *old_data);
 } NMConfigClass;
 
 GType nm_config_get_type (void);
@@ -74,6 +80,7 @@ GOptionEntry *nm_config_get_options (void);
 NMConfig *nm_config_new (const char *cli_log_level,
                          const char *cli_log_domains,
                          GError **error);
+void nm_config_reload (NMConfig *config);
 
 G_END_DECLS
 

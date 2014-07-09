@@ -290,6 +290,63 @@ nm_config_data_new_keyfile (GKeyFile *keyfile,
 	return self;
 }
 
+#define CHANGED(p) g_hash_table_insert (changes, NM_CONFIG_DATA_##p, GUINT_TO_POINTER (1));
+
+GHashTable *
+nm_config_data_diff (NMConfigData *self, NMConfigData *other)
+{
+	NMConfigDataPrivate *priv, *other_priv;
+	GHashTable *changes;
+	guint i, n;
+
+	g_return_val_if_fail (NM_IS_CONFIG_DATA (self), NULL);
+	g_return_val_if_fail (NM_IS_CONFIG_DATA (other), NULL);
+
+	priv = NM_CONFIG_DATA_GET_PRIVATE (self);
+	other_priv = NM_CONFIG_DATA_GET_PRIVATE (other);
+
+	changes = g_hash_table_new (g_str_hash, g_str_equal);
+
+	n = g_strv_length (priv->plugins);
+	if (n != g_strv_length (other_priv->plugins))
+		CHANGED (PLUGINS);
+	for (i = 0; i < n; i++) {
+		if (g_strcmp0 (priv->plugins[i], other_priv->plugins[i])) {
+			CHANGED (PLUGINS);
+			break;
+		}
+	}
+
+	if (priv->monitor_connection_files != other_priv->monitor_connection_files)
+		CHANGED (MONITOR_CONNECTION_FILES);
+
+	if (g_strcmp0 (priv->dhcp_client, other_priv->dhcp_client))
+		CHANGED (DHCP_CLIENT);
+
+	if (g_strcmp0 (priv->dns_mode, other_priv->dns_mode))
+		CHANGED (DNS_MODE);
+
+	if (g_strcmp0 (priv->debug, other_priv->debug))
+		CHANGED (DEBUG);
+
+	if (g_strcmp0 (priv->log.level, other_priv->log.level))
+		CHANGED (LOG_LEVEL);
+
+	if (g_strcmp0 (priv->log.domains, other_priv->log.domains))
+		CHANGED (LOG_LEVEL);
+
+	if (g_strcmp0 (priv->connectivity.uri, other_priv->connectivity.uri))
+		CHANGED (CONNECTIVITY_URI);
+
+	if (priv->connectivity.interval != other_priv->connectivity.interval)
+		CHANGED (CONNECTIVITY_INTERVAL);
+
+	if (g_strcmp0 (priv->connectivity.response, other_priv->connectivity.response))
+		CHANGED (CONNECTIVITY_RESPONSE);
+
+	return changes;
+}
+
 /************************************************************************/
 
 static void

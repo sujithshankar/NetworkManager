@@ -76,6 +76,8 @@ NMConfigData *nm_config_data_new_keyfile (GKeyFile *keyfile,
                                           NMConfigData *override,
                                           GError **error);
 
+GHashTable *nm_config_data_diff (NMConfigData *self, NMConfigData *other);
+
 G_END_DECLS
 
 #endif /* NM_CONFIG_DATA_H */

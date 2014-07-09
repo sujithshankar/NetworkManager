@@ -225,7 +225,9 @@ _handle_signal (gpointer user_data)
 
 	g_assert (signo == SIGHUP);
 
-	nm_log_info (LOGD_CORE, "caught signal %d, not supported yet.", signo);
+	nm_log_info (LOGD_CORE, "caught signal %d, reload configuration...", signo);
+
+	nm_config_reload (nm_config_get ());
 
 	return G_SOURCE_REMOVE;
 }
