@@ -39,9 +39,7 @@ main (int argc, char **argv)
 	const char *ifname;
 	char mac[6] = { 0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee };
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	loop = g_main_loop_new (NULL, FALSE);
 	nm_logging_setup ("debug", "ip6", NULL, NULL);

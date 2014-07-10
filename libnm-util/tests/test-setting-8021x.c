@@ -412,9 +412,7 @@ int main (int argc, char **argv)
 	if (argc < 3)
 		FAIL ("init", "need at least two arguments: <path> <password>");
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	if (!nm_utils_init (&error))
 		FAIL ("nm-utils-init", "failed to initialize libnm-util: %s", error->message);

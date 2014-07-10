@@ -41,6 +41,7 @@
 #include <glib/gi18n.h>
 
 #include "nm-client.h"
+#include "nm-glib-compat.h"
 
 #define PROGRESS_STEPS 15
 #define WAIT_STARTUP_TAG "wait-startup"
@@ -187,9 +188,7 @@ main (int argc, char *argv[])
 	}
 	remaining_ms = t_secs * 1000;
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	client = nm_client_new ();
 	if (!client) {

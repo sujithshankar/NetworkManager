@@ -563,9 +563,7 @@ main (int argc, char *argv[])
 
 	nm_logging_syslog_openlog (debug);
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	dbus_threads_init_default ();
 

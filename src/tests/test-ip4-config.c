@@ -23,6 +23,7 @@
 #include <arpa/inet.h>
 
 #include "nm-ip4-config.h"
+#include "nm-glib-compat.h"
 
 static void
 addr_init (NMPlatformIP4Address *a, const char *addr, const char *peer, guint plen)
@@ -340,9 +341,7 @@ main (int argc, char **argv)
 {
 	g_test_init (&argc, &argv, NULL);
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_add_func ("/ip4-config/subtract", test_subtract);
 	g_test_add_func ("/ip4-config/compare-with-source", test_compare_with_source);

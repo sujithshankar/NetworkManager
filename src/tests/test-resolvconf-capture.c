@@ -208,9 +208,7 @@ main (int argc, char **argv)
 {
 	g_test_init (&argc, &argv, NULL);
 
-#if !GLIB_CHECK_VERSION (2,35,0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_add_func ("/resolvconf-capture/empty", test_capture_empty);
 	g_test_add_func ("/resolvconf-capture/basic4", test_capture_basic4);

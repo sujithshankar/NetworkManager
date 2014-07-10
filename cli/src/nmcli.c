@@ -38,6 +38,7 @@
 #include <nm-remote-settings.h>
 
 #include "nmcli.h"
+#include "nm-glib-compat.h"
 #include "utils.h"
 #include "common.h"
 #include "connections.h"
@@ -485,9 +486,7 @@ main (int argc, char *argv[])
 	textdomain (GETTEXT_PACKAGE);
 #endif
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	/* readline init */
 	rl_event_hook = event_hook_for_readline;

@@ -28,6 +28,7 @@
 #include "nm-setting-wireless.h"
 #include "nm-setting-wireless-security.h"
 #include "nm-setting-8021x.h"
+#include "nm-glib-compat.h"
 
 #define DEBUG 1
 
@@ -1335,9 +1336,7 @@ main (int argc, char **argv)
 {
 	gsize i;
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_init (&argc, &argv, NULL);
 

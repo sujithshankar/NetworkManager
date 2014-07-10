@@ -28,6 +28,8 @@
 #include <dbus/dbus-glib-lowlevel.h>
 #include <dbus/dbus-glib.h>
 
+#include "nm-glib-compat.h"
+
 #define NM_AVAHI_AUTOIPD_DBUS_SERVICE "org.freedesktop.nm_avahi_autoipd"
 #define NM_AVAHI_AUTOIPD_DBUS_IFACE   "org.freedesktop.nm_avahi_autoipd"
 
@@ -90,9 +92,7 @@ main (int argc, char *argv[])
 	dbus_bool_t result;
 	char *event, *iface, *address;
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	if (argc != 4) {
 		fprintf (stderr, "Error: expected 3 arguments (event, interface, address).\n");

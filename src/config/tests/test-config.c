@@ -26,6 +26,7 @@
 
 #include <nm-config.h>
 #include "nm-test-device.h"
+#include "nm-glib-compat.h"
 
 static void
 setup_config (const char *config_file, const char *config_dir, ...)
@@ -281,9 +282,7 @@ test_config_confdir_parse_error (void)
 int
 main (int argc, char **argv)
 {
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_init (&argc, &argv, NULL);
 

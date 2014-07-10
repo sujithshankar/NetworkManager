@@ -31,6 +31,7 @@
 #include "nm-dbus-glib-types.h"
 #include "nm-dispatcher-api.h"
 #include "nm-utils.h"
+#include "nm-glib-compat.h"
 
 /*******************************************/
 
@@ -643,9 +644,7 @@ main (int argc, char **argv)
 
 	g_test_init (&argc, &argv, NULL);
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_add_data_func ("/dispatcher/old_up", argv[1], (GTestDataFunc) test_old_up);
 	g_test_add_data_func ("/dispatcher/old_down", argv[1], (GTestDataFunc) test_old_down);

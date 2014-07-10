@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "nm-dcb.h"
+#include "nm-glib-compat.h"
 
 typedef struct {
 	guint num;
@@ -338,9 +339,7 @@ main (int argc, char **argv)
 {
 	g_test_init (&argc, &argv, NULL);
 
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_add_func ("/dcb/fcoe", test_dcb_fcoe);
 	g_test_add_func ("/dcb/iscsi", test_dcb_iscsi);

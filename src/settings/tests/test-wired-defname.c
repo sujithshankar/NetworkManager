@@ -24,6 +24,7 @@
 #include <nm-connection.h>
 #include <nm-setting-connection.h>
 #include "nm-settings-utils.h"
+#include "nm-glib-compat.h"
 
 static NMConnection *
 _new_connection (const char *id)
@@ -123,9 +124,7 @@ test_defname_multiple_conflicts (void)
 int
 main (int argc, char **argv)
 {
-#if !GLIB_CHECK_VERSION (2, 35, 0)
-	g_type_init ();
-#endif
+	nm_g_type_init ();
 
 	g_test_init (&argc, &argv, NULL);
 
