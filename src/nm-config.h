@@ -26,6 +26,7 @@
 #include <glib-object.h>
 
 #include "nm-types.h"
+#include "nm-config-data.h"
 
 G_BEGIN_DECLS
 
@@ -50,6 +51,7 @@ GType nm_config_get_type (void);
 
 NMConfig *nm_config_get (void);
 
+NMConfigData *nm_config_get_data (NMConfig *config);
 const char *nm_config_get_path (NMConfig *config);
 const char *nm_config_get_description (NMConfig *config);
 const char **nm_config_get_plugins (NMConfig *config);
@@ -59,9 +61,6 @@ const char *nm_config_get_dns_mode (NMConfig *config);
 const char *nm_config_get_log_level (NMConfig *config);
 const char *nm_config_get_log_domains (NMConfig *config);
 const char *nm_config_get_debug (NMConfig *config);
-const char *nm_config_get_connectivity_uri (NMConfig *config);
-guint nm_config_get_connectivity_interval (NMConfig *config);
-const char *nm_config_get_connectivity_response (NMConfig *config);
 
 gboolean nm_config_get_ethernet_can_auto_default (NMConfig *config, NMDevice *device);
 void     nm_config_set_ethernet_no_auto_default  (NMConfig *config, NMDevice *device);
