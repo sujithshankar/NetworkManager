@@ -38,9 +38,9 @@ G_BEGIN_DECLS
 
 typedef struct _NMConfigCmdLineOptions NMConfigCmdLineOptions;
 
-typedef struct {
+struct _NMConfig {
 	GObject parent;
-} NMConfig;
+};
 
 typedef struct {
 	GObjectClass parent;
