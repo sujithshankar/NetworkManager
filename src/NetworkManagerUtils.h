@@ -51,6 +51,8 @@ nm_utils_ip6_route_metric_normalize (guint32 metric)
 
 int nm_spawn_process (const char *args);
 
+gboolean nm_utils_g_object_has_exclusive_ref (GObject *object);
+
 /* macro to return strlen() of a compile time string. */
 #define STRLEN(str)     ( sizeof ("" str) - 1 )
 
