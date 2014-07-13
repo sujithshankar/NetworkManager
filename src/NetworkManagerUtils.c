@@ -48,6 +48,37 @@
 #include "nm-posix-signals.h"
 #include "nm-dbus-glib-types.h"
 
+
+static void
+_toggle_ref_cb (gpointer data, GObject *object, gboolean is_last_ref)
+{
+	*((gboolean *) data) = TRUE;
+}
+
+/**
+ * nm_utils_g_object_has_exclusive_ref:
+ * @object: the #GObject to be tested
+ *
+ * Returns: TRUE, if there exists only one reference to the
+ * @object instance. Otherwise #FALSE.
+ */
+gboolean
+nm_utils_g_object_has_exclusive_ref (GObject *object)
+{
+	gboolean toggled = FALSE;
+
+	g_return_val_if_fail (object, FALSE);
+
+	g_object_add_toggle_ref (object, _toggle_ref_cb, &toggled);
+
+	g_object_unref (object);
+	g_object_ref (object);
+
+	g_object_remove_toggle_ref (object, _toggle_ref_cb, &toggled);
+
+	return toggled;
+}
+
 /*
  * Some toolchains (E.G. uClibc 0.9.33 and earlier) don't export
  * CLOCK_BOOTTIME even though the kernel supports it, so provide a

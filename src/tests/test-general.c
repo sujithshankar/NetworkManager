@@ -226,6 +226,26 @@ test_nm_utils_ip6_address_clear_host_address (void)
 	g_rand_free (r);
 }
 
+static void
+test_nm_utils_g_object_has_exclusive_ref (void)
+{
+	GObject *obj = g_object_new (G_TYPE_OBJECT, NULL);
+
+	g_assert (obj);
+
+	g_assert (nm_utils_g_object_has_exclusive_ref (obj));
+	g_object_ref (obj);
+	g_assert (!nm_utils_g_object_has_exclusive_ref (obj));
+	g_object_ref (obj);
+	g_assert (!nm_utils_g_object_has_exclusive_ref (obj));
+	g_object_unref (obj);
+	g_assert (!nm_utils_g_object_has_exclusive_ref (obj));
+	g_object_unref (obj);
+	g_assert (nm_utils_g_object_has_exclusive_ref (obj));
+
+	g_object_unref (obj);
+}
+
 /*******************************************/
 
 static NMConnection *
@@ -592,6 +612,7 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/general/nm_utils_ascii_str_to_int64", test_nm_utils_ascii_str_to_int64);
 	g_test_add_func ("/general/nm_utils_ip6_address_clear_host_address", test_nm_utils_ip6_address_clear_host_address);
+	g_test_add_func ("/general/nm_utils_g_object_has_exclusive_ref", test_nm_utils_g_object_has_exclusive_ref);
 
 	g_test_add_func ("/general/connection-match/basic", test_connection_match_basic);
 	g_test_add_func ("/general/connection-match/ip6-method", test_connection_match_ip6_method);
