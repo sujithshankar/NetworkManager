@@ -1596,7 +1596,8 @@ nm_settings_device_added (NMSettings *self, NMDevice *device)
 	guint len = 0;
 	GByteArray *mac;
 
-	if (!NM_IS_DEVICE_ETHERNET (device))
+	/* Only actual ethernet devices (and not subclasses) should auto-default */
+	if (G_OBJECT_TYPE (device) != NM_TYPE_DEVICE_ETHERNET)
 		return;
 
 	/* If the device isn't managed or it already has a default wired connection,
