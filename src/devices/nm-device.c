@@ -317,8 +317,6 @@ static void nm_device_slave_notify_release (NMDevice *dev, NMDeviceStateReason r
 
 static void addrconf6_start_with_link_ready (NMDevice *self);
 
-static gboolean nm_device_get_default_unmanaged (NMDevice *device);
-
 static void _set_state_full (NMDevice *device,
                              NMDeviceState state,
                              NMDeviceStateReason reason,
@@ -4965,12 +4963,7 @@ _device_activate (NMDevice *self, NMActRequest *req)
 
 	delete_on_deactivate_unschedule (self);
 
-	/* Move default unmanaged devices to DISCONNECTED state here */
-	if (nm_device_get_default_unmanaged (self) && priv->state == NM_DEVICE_STATE_UNMANAGED) {
-		nm_device_state_changed (self,
-		                         NM_DEVICE_STATE_DISCONNECTED,
-		                         NM_DEVICE_STATE_REASON_NOW_MANAGED);
-	}
+	g_warn_if_fail (priv->state == NM_DEVICE_STATE_DISCONNECTED);
 
 	/* note: don't notify D-Bus of the new AC here, but do it later when
 	 * changing state to PREPARE so that the two properties change together.
@@ -5906,23 +5899,9 @@ nm_device_queued_ip_config_change_clear (NMDevice *self)
 gboolean
 nm_device_get_managed (NMDevice *device)
 {
-	NMDevicePrivate *priv;
-	gboolean managed;
-
 	g_return_val_if_fail (NM_IS_DEVICE (device), FALSE);
 
-	priv = NM_DEVICE_GET_PRIVATE (device);
-
-	/* Return the composite of all managed flags.  However, if the device
-	 * is a default-unmanaged device, and would be managed except for the
-	 * default-unmanaged flag (eg, only NM_UNMANAGED_DEFAULT is set) then
-	 * the device is managed whenever it's not in the UNMANAGED state.
-	 */
-	managed = !(priv->unmanaged_flags & ~NM_UNMANAGED_DEFAULT);
-	if (managed && (priv->unmanaged_flags & NM_UNMANAGED_DEFAULT))
-		managed = (priv->state > NM_DEVICE_STATE_UNMANAGED);
-
-	return managed;
+	return NM_DEVICE_GET_PRIVATE (device)->unmanaged_flags == 0;
 }
 
 /**
@@ -5935,18 +5914,6 @@ gboolean
 nm_device_get_unmanaged_flag (NMDevice *device, NMUnmanagedFlags flag)
 {
 	return NM_DEVICE_GET_PRIVATE (device)->unmanaged_flags & flag;
-}
-
-/**
- * nm_device_get_default_unmanaged():
- * @device: the #NMDevice
- *
- * Returns: %TRUE if the device is by default unmanaged
- */
-static gboolean
-nm_device_get_default_unmanaged (NMDevice *device)
-{
-	return nm_device_get_unmanaged_flag (device, NM_UNMANAGED_DEFAULT);
 }
 
 void
@@ -6076,15 +6043,6 @@ nm_device_connection_is_available (NMDevice *device,
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (device);
 	gboolean available = FALSE;
-
-	if (nm_device_get_default_unmanaged (device) && (priv->state == NM_DEVICE_STATE_UNMANAGED)) {
-		/* default-unmanaged  devices in UNMANAGED state have no available connections
-		 * so we must manually check whether the connection is available here.
-		 */
-		if (   nm_device_check_connection_compatible (device, connection)
-		    && NM_DEVICE_GET_CLASS (device)->check_connection_available (device, connection, NULL))
-			return TRUE;
-	}
 
 	available = !!g_hash_table_lookup (priv->available_connections, connection);
 	if (!available && allow_device_override) {
@@ -6702,9 +6660,7 @@ _set_state_full (NMDevice *device,
 			if (old_state == NM_DEVICE_STATE_UNMANAGED) {
 				nm_log_dbg (LOGD_DEVICE, "(%s): device not yet available for transition to DISCONNECTED",
 				            nm_device_get_iface (device));
-			} else if (   old_state > NM_DEVICE_STATE_UNAVAILABLE
-			           && nm_device_get_default_unmanaged (device))
-				nm_device_queue_state (device, NM_DEVICE_STATE_UNMANAGED, NM_DEVICE_STATE_REASON_NONE);
+			}
 		}
 		break;
 	case NM_DEVICE_STATE_DEACTIVATING:
@@ -6734,9 +6690,7 @@ _set_state_full (NMDevice *device,
 			priv->queued_act_request = NULL;
 			_device_activate (device, queued_req);
 			g_object_unref (queued_req);
-		} else if (   old_state > NM_DEVICE_STATE_DISCONNECTED
-		           && nm_device_get_default_unmanaged (device))
-			nm_device_queue_state (device, NM_DEVICE_STATE_UNMANAGED, NM_DEVICE_STATE_REASON_NONE);
+		}
 		break;
 	case NM_DEVICE_STATE_ACTIVATED:
 		nm_log_info (LOGD_DEVICE, "Activation (%s) successful, device activated.",
