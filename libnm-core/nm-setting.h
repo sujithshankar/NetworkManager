@@ -175,6 +175,10 @@ typedef struct {
 	                                  GSList     *all_settings,
 	                                  GError     **error);
 
+	gboolean    (*normalize)         (NMSetting  *setting,
+	                                  GHashTable *parameters,
+	                                  GSList     *all_settings);
+
 	GPtrArray  *(*need_secrets)      (NMSetting  *setting);
 
 	int         (*update_one_secret) (NMSetting  *setting,

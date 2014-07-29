@@ -538,6 +538,20 @@ _nm_setting_verify (NMSetting *setting, GSList *all_settings, GError **error)
 	return NM_SETTING_VERIFY_SUCCESS;
 }
 
+gboolean
+_nm_setting_normalize (NMSetting  *setting,
+                       GHashTable *parameters,
+                       GSList     *all_settings)
+{
+	g_return_val_if_fail (NM_IS_SETTING (setting), FALSE);
+	g_return_val_if_fail (all_settings != NULL, FALSE);
+
+	if (!NM_SETTING_GET_CLASS (setting)->normalize)
+		return FALSE;
+
+	return NM_SETTING_GET_CLASS (setting)->normalize (setting, parameters, all_settings);
+}
+
 static gboolean
 compare_property (NMSetting *setting,
                   NMSetting *other,

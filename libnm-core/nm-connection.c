@@ -680,6 +680,31 @@ _normalize_ip_config (NMConnection *self, GHashTable *parameters)
 	}
 }
 
+static GSList *
+get_all_settings (NMConnection *connection)
+{
+	NMConnectionPrivate *priv = NM_CONNECTION_GET_PRIVATE (connection);
+	GHashTableIter iter;
+	gpointer value;
+	GSList *all_settings = NULL;
+
+	g_hash_table_iter_init (&iter, priv->settings);
+	while (g_hash_table_iter_next (&iter, NULL, &value)) {
+		/* Order NMSettingConnection so that it will be verified first.  The
+		 * reason is that errors in this setting might be more fundamental and
+		 * should be checked and reported with higher priority.  Another reason
+		 * is, that some settings look especially at the NMSettingConnection, so
+		 * they find it first in the all_settings list.
+		 */
+		if (NM_IS_SETTING_CONNECTION (value))
+			all_settings = g_slist_append (all_settings, value);
+		else
+			all_settings = g_slist_prepend (all_settings, value);
+	}
+
+	return g_slist_reverse (all_settings);
+}
+
 /**
  * nm_connection_verify:
  * @connection: the #NMConnection to verify
@@ -718,8 +743,6 @@ _nm_connection_verify (NMConnection *connection, GError **error)
 	NMSettingConnection *s_con;
 	NMSettingIP4Config *s_ip4;
 	NMSettingIP6Config *s_ip6;
-	GHashTableIter iter;
-	gpointer value;
 	GSList *all_settings = NULL, *setting_i;
 	NMSettingVerifyResult success = NM_SETTING_VERIFY_ERROR;
 	NMSetting *base;
@@ -750,23 +773,8 @@ _nm_connection_verify (NMConnection *connection, GError **error)
 		goto EXIT;
 	}
 
-	/* Build up the list of settings */
-	g_hash_table_iter_init (&iter, priv->settings);
-	while (g_hash_table_iter_next (&iter, NULL, &value)) {
-		/* Order NMSettingConnection so that it will be verified first.  The
-		 * reason is that errors in this setting might be more fundamental and
-		 * should be checked and reported with higher priority.  Another reason
-		 * is, that some settings look especially at the NMSettingConnection, so
-		 * they find it first in the all_settings list.
-		 */
-		if (value == s_con)
-			all_settings = g_slist_append (all_settings, value);
-		else
-			all_settings = g_slist_prepend (all_settings, value);
-	}
-	all_settings = g_slist_reverse (all_settings);
-
 	/* Now, run the verify function of each setting */
+	all_settings = get_all_settings (connection);
 	for (setting_i = all_settings; setting_i; setting_i = setting_i->next) {
 		GError *verify_error = NULL;
 		NMSettingVerifyResult verify_result;
@@ -902,6 +910,7 @@ nm_connection_normalize (NMConnection *connection,
 {
 	NMSettingVerifyResult success;
 	gboolean was_modified = FALSE;
+	GSList *all_settings, *iter;
 	GError *normalizable_error = NULL;
 
 	success = _nm_connection_verify (connection, &normalizable_error);
@@ -917,7 +926,12 @@ nm_connection_normalize (NMConnection *connection,
 
 	/* Try to perform all kind of normalizations on the settings to fix it.
 	 * We only do this, after verifying that the connection contains no un-normalizable
-	 * errors, because in that case we rather fail without touching the settings. */
+	 * errors, because in that case we rather fail without touching the settings.
+	 */
+	all_settings = get_all_settings (connection);
+	for (iter = all_settings; iter; iter = iter->next)
+		was_modified |= _nm_setting_normalize (iter->data, parameters, all_settings);
+	g_slist_free (all_settings);
 
 	was_modified |= _normalize_virtual_iface_name (connection);
 	was_modified |= _normalize_ip_config (connection, parameters);
