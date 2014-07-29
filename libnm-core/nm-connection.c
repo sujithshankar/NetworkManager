@@ -753,14 +753,12 @@ _nm_connection_verify (NMConnection *connection, GError **error)
 	/* Build up the list of settings */
 	g_hash_table_iter_init (&iter, priv->settings);
 	while (g_hash_table_iter_next (&iter, NULL, &value)) {
-		/* Order NMSettingConnection so that it will be verified first.
-		 * The reason is, that NMSettingConnection:verify() modifies the connection
-		 * by setting NMSettingConnection:interface_name. So we want to call that
-		 * verify() first, because the order can affect the outcome.
-		 * Another reason is, that errors in this setting might be more fundamental
-		 * and should be checked and reported with higher priority.
-		 * Another reason is, that some settings look especially at the
-		 * NMSettingConnection, so they find it first in the all_settings list. */
+		/* Order NMSettingConnection so that it will be verified first.  The
+		 * reason is that errors in this setting might be more fundamental and
+		 * should be checked and reported with higher priority.  Another reason
+		 * is, that some settings look especially at the NMSettingConnection, so
+		 * they find it first in the all_settings list.
+		 */
 		if (value == s_con)
 			all_settings = g_slist_append (all_settings, value);
 		else

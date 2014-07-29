@@ -741,7 +741,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 {
 	NMSettingConnectionPrivate *priv = NM_SETTING_CONNECTION_GET_PRIVATE (setting);
 	gboolean is_slave;
-	GSList *iter;
 
 	if (!priv->id) {
 		g_set_error_literal (error,
@@ -774,38 +773,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 		             priv->uuid);
 		g_prefix_error (error, "%s.%s: ", NM_SETTING_CONNECTION_SETTING_NAME, NM_SETTING_CONNECTION_UUID);
 		return FALSE;
-	}
-
-	/* FIXME: previously, verify() set the NMSettingConnection:interface_name property,
-	 * thus modifying the setting. verify() should not do this, but keep this not to change
-	 * behaviour.
-	 */
-	if (!priv->interface_name) {
-		for (iter = all_settings; iter; iter = iter->next) {
-			NMSetting *s_current = iter->data;
-			char *virtual_iface_name = NULL;
-
-			if (NM_IS_SETTING_BOND (s_current))
-				g_object_get (s_current, NM_SETTING_BOND_INTERFACE_NAME, &virtual_iface_name, NULL);
-			else if (NM_IS_SETTING_BRIDGE (s_current))
-				g_object_get (s_current, NM_SETTING_BRIDGE_INTERFACE_NAME, &virtual_iface_name, NULL);
-			else if (NM_IS_SETTING_TEAM (s_current))
-				g_object_get (s_current, NM_SETTING_TEAM_INTERFACE_NAME, &virtual_iface_name, NULL);
-			else if (NM_IS_SETTING_VLAN (s_current))
-				g_object_get (s_current, NM_SETTING_VLAN_INTERFACE_NAME, &virtual_iface_name, NULL);
-			/* For NMSettingInfiniband, virtual_iface_name has no backing field.
-			 * No need to set the (unset) interface_name to the default value.
-			 **/
-
-			if (virtual_iface_name) {
-				if (nm_utils_iface_valid_name (virtual_iface_name)) {
-					/* found a new interface name. */
-					priv->interface_name = virtual_iface_name;
-					break;
-				}
-				g_free (virtual_iface_name);
-			}
-		}
 	}
 
 	if (priv->interface_name) {
