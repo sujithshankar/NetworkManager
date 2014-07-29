@@ -674,6 +674,17 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 	         all_settings, error);
 }
 
+static gboolean
+normalize (NMSetting  *setting,
+           GHashTable *parameters,
+           GSList     *all_settings)
+{
+	NMSettingBondPrivate *priv = NM_SETTING_BOND_GET_PRIVATE (setting);
+
+	return _nm_setting_normalize_deprecated_virtual_iface_name (
+			&priv->interface_name, all_settings);
+}
+
 static const char *
 get_virtual_iface_name (NMSetting *setting)
 {
@@ -767,7 +778,9 @@ nm_setting_bond_class_init (NMSettingBondClass *setting_class)
 	object_class->set_property = set_property;
 	object_class->get_property = get_property;
 	object_class->finalize     = finalize;
+
 	parent_class->verify       = verify;
+	parent_class->normalize    = normalize;
 	parent_class->get_virtual_iface_name = get_virtual_iface_name;
 
 	/* Properties */

@@ -1366,6 +1366,28 @@ _nm_setting_verify_deprecated_virtual_iface_name (const char *interface_name,
 	return NM_SETTING_VERIFY_SUCCESS;
 }
 
+gboolean
+_nm_setting_normalize_deprecated_virtual_iface_name (char **virtual_iface_name,
+                                                     GSList *all_settings)
+{
+	NMSettingConnection *s_con;
+	const char *interface_name;
+
+	s_con = NM_SETTING_CONNECTION (nm_setting_find_in_list (all_settings, NM_SETTING_CONNECTION_SETTING_NAME));
+	g_return_val_if_fail (s_con != NULL, FALSE);
+
+	interface_name = nm_setting_connection_get_interface_name (s_con);
+	if (!interface_name)
+		return FALSE;
+
+	if (g_strcmp0 (interface_name, *virtual_iface_name) != 0) {
+		g_free (*virtual_iface_name);
+		*virtual_iface_name = g_strdup (interface_name);
+		return TRUE;
+	} else
+		return FALSE;
+}
+
 /*****************************************************************************/
 
 static void

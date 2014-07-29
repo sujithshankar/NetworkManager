@@ -852,6 +852,33 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 }
 
 static gboolean
+normalize (NMSetting  *setting,
+           GHashTable *parameters,
+           GSList     *all_settings)
+{
+	NMSettingConnectionPrivate *priv = NM_SETTING_CONNECTION_GET_PRIVATE (setting);
+	const char *virtual_iface_name = NULL;
+	GSList *iter;
+
+	/* If :interface-name is already set, we do nothing; verify() will deal with
+	 * erroring out if there is a mismatch.
+	 */
+	if (priv->interface_name)
+		return FALSE;
+
+	for (iter = all_settings; iter; iter = iter->next) {
+		virtual_iface_name = nm_setting_get_virtual_iface_name (iter->data);
+		if (virtual_iface_name) {
+			priv->interface_name = g_strdup (virtual_iface_name);
+			g_object_notify (G_OBJECT (setting), NM_SETTING_CONNECTION_INTERFACE_NAME);
+			break;
+		}
+	}
+
+	return priv->interface_name != NULL;
+}
+
+static gboolean
 compare_property (NMSetting *setting,
                   NMSetting *other,
                   const GParamSpec *prop_spec,
@@ -1041,7 +1068,9 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	object_class->set_property = set_property;
 	object_class->get_property = get_property;
 	object_class->finalize     = finalize;
+
 	parent_class->verify       = verify;
+	parent_class->normalize    = normalize;
 	parent_class->compare_property = compare_property;
 
 	/* Properties */

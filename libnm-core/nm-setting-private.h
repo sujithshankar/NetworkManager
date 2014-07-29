@@ -122,4 +122,11 @@ NMSettingVerifyResult _nm_setting_verify (NMSetting *setting,
                                           GSList    *all_settings,
                                           GError    **error);
 
+gboolean _nm_setting_normalize_deprecated_virtual_iface_name (char **virtual_iface_name,
+                                                              GSList *all_settings);
+
+gboolean _nm_setting_normalize (NMSetting  *setting,
+                                GHashTable *parameters,
+                                GSList     *all_settings);
+
 #endif  /* NM_SETTING_PRIVATE_H */
