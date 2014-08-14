@@ -33,11 +33,16 @@ G_BEGIN_DECLS
 #define NM_IS_CONFIG_DATA_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass),  NM_TYPE_CONFIG_DATA))
 #define NM_CONFIG_DATA_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj),  NM_TYPE_CONFIG_DATA, NMConfigDataClass))
 
-
-#define NM_CONFIG_DATA_CONFIG                "config"
-#define NM_CONFIG_DATA_CONNECTIVITY_URI      "connectivity-uri"
-#define NM_CONFIG_DATA_CONNECTIVITY_INTERVAL "connectivity-interval"
-#define NM_CONFIG_DATA_CONNECTIVITY_RESPONSE "connectivity-response"
+#define NM_CONFIG_DATA_PLUGINS                  "plugins"
+#define NM_CONFIG_DATA_MONITOR_CONNECTION_FILES "monitor-connection-files"
+#define NM_CONFIG_DATA_DHCP_CLIENT              "dhcp-client"
+#define NM_CONFIG_DATA_DNS_MODE                 "dns-mode"
+#define NM_CONFIG_DATA_DEBUG                    "debug"
+#define NM_CONFIG_DATA_LOG_LEVEL                "log-level"
+#define NM_CONFIG_DATA_LOG_DOMAINS              "log-domains"
+#define NM_CONFIG_DATA_CONNECTIVITY_URI         "connectivity-uri"
+#define NM_CONFIG_DATA_CONNECTIVITY_INTERVAL    "connectivity-interval"
+#define NM_CONFIG_DATA_CONNECTIVITY_RESPONSE    "connectivity-response"
 
 typedef struct {
 	GObject parent;
@@ -49,9 +54,22 @@ typedef struct {
 
 GType nm_config_data_get_type (void);
 
-const char *nm_config_data_get_connectivity_uri (NMConfigData *config_data);
-const guint nm_config_data_get_connectivity_interval (NMConfigData *config_data);
-const char *nm_config_data_get_connectivity_response (NMConfigData *config_data);
+const char **nm_config_data_get_plugins                  (NMConfigData *self);
+gboolean     nm_config_data_get_monitor_connection_files (NMConfigData *self);
+const char * nm_config_data_get_dhcp_client              (NMConfigData *self);
+const char * nm_config_data_get_dns_mode                 (NMConfigData *self);
+const char * nm_config_data_get_log_level                (NMConfigData *self);
+const char * nm_config_data_get_log_domains              (NMConfigData *self);
+const char * nm_config_data_get_debug                    (NMConfigData *self);
+
+const char * nm_config_data_get_connectivity_uri         (NMConfigData *self);
+const guint  nm_config_data_get_connectivity_interval    (NMConfigData *self);
+const char * nm_config_data_get_connectivity_response    (NMConfigData *self);
+
+/* for main.c only */
+GOptionEntry *nm_config_data_get_options (void);
+
+NMConfigData *nm_config_data_new_cli (GError **error);
 
 G_END_DECLS
 
