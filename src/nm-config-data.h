@@ -69,11 +69,11 @@ const char * nm_config_data_get_connectivity_response    (NMConfigData *self);
 /* for main.c only */
 GOptionEntry *nm_config_data_get_options (void);
 
-NMConfigData *nm_config_data_new_cli (GError **error);
+NMConfigData *nm_config_data_new_cli (const char *cli_log_level,
+                                      const char *cli_log_domains,
+                                      GError **error);
 NMConfigData *nm_config_data_new_keyfile (GKeyFile *keyfile,
                                           NMConfigData *override,
-                                          const char *log_level,
-                                          const char *log_domains,
                                           GError **error);
 
 G_END_DECLS

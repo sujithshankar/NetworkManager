@@ -360,7 +360,6 @@ main (int argc, char *argv[])
 	GOptionEntry options[] = {
 		{ "version", 'V', 0, G_OPTION_ARG_NONE, &show_version, N_("Print NetworkManager version and exit"), NULL },
 		{ "no-daemon", 'n', G_OPTION_FLAG_REVERSE, G_OPTION_ARG_NONE, &become_daemon, N_("Don't become a daemon"), NULL },
-		{ "debug", 'd', 0, G_OPTION_ARG_NONE, &debug, N_("Don't become a daemon, and log to stderr"), NULL },
 		{ "log-level", 0, 0, G_OPTION_ARG_STRING, &opt_log_level, N_("Log level: one of [%s]"), "INFO" },
 		{ "log-domains", 0, 0, G_OPTION_ARG_STRING, &opt_log_domains,
 		  N_("Log domains separated by ',': any combination of [%s]"),
@@ -419,6 +418,7 @@ main (int argc, char *argv[])
 	g_option_context_set_help_enabled (opt_ctx, TRUE);
 	g_option_context_add_main_entries (opt_ctx, options, NULL);
 	g_option_context_add_main_entries (opt_ctx, nm_config_get_options (), NULL);
+	g_option_context_add_main_entries (opt_ctx, nm_config_data_get_options (), NULL);
 
 	g_option_context_set_summary (opt_ctx,
 		_("NetworkManager monitors all network connections and automatically\nchooses the best connection to use.  It also allows the user to\nspecify wireless access points which wireless cards in the computer\nshould associate with."));
@@ -496,14 +496,15 @@ main (int argc, char *argv[])
 	if (check_pidfile (pidfile))
 		exit (1);
 
-	/* Read the config file and CLI overrides */
-	config = nm_config_new (&error);
+	/* Read the config files and CLI overrides */
+	config = nm_config_new (opt_log_level, opt_log_domains, &error);
 	if (config == NULL) {
 		fprintf (stderr, _("Failed to read configuration: (%d) %s\n"),
 		         error ? error->code : -1,
 		         (error && error->message) ? error->message : _("unknown"));
 		exit (1);
 	}
+	debug = !!nm_config_get_debug (config);
 
 	/* Initialize logging from config file *only* if not explicitly
 	 * specified by commandline.

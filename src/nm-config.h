@@ -26,6 +26,7 @@
 #include <glib-object.h>
 
 #include "nm-types.h"
+#include "nm-config-data.h"
 
 G_BEGIN_DECLS
 
@@ -70,7 +71,9 @@ char *nm_config_get_value (NMConfig *config, const char *group, const char *key,
 
 /* for main.c only */
 GOptionEntry *nm_config_get_options (void);
-NMConfig *nm_config_new (GError **error);
+NMConfig *nm_config_new (const char *cli_log_level,
+                         const char *cli_log_domains,
+                         GError **error);
 
 G_END_DECLS
 

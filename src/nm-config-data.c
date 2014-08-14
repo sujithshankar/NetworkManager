@@ -177,7 +177,9 @@ nm_config_data_get_options (void)
 #define IGNORE_EMPTY(s) (s && s[0] ? s : NULL)
 
 NMConfigData *
-nm_config_data_new_cli (GError **error)
+nm_config_data_new_cli (const char *cli_log_level,
+                        const char *cli_log_domains,
+                        GError **error)
 {
 	gs_strfreev char **plugins = NULL;
 
@@ -187,6 +189,8 @@ nm_config_data_new_cli (GError **error)
 	return g_object_new (NM_TYPE_CONFIG_DATA,
 	                     NM_CONFIG_DATA_PLUGINS,               plugins,
 	                     NM_CONFIG_DATA_DEBUG,                 cli_debug ? "debug" : NULL,
+	                     NM_CONFIG_DATA_LOG_LEVEL,             IGNORE_EMPTY (cli_log_level),
+	                     NM_CONFIG_DATA_LOG_DOMAINS,           IGNORE_EMPTY (cli_log_domains),
 	                     NM_CONFIG_DATA_CONNECTIVITY_URI,      IGNORE_EMPTY (cli_connectivity_uri),
 	                     NM_CONFIG_DATA_CONNECTIVITY_INTERVAL, cli_connectivity_interval,
 	                     NM_CONFIG_DATA_CONNECTIVITY_RESPONSE, IGNORE_EMPTY (cli_connectivity_response),
@@ -196,8 +200,6 @@ nm_config_data_new_cli (GError **error)
 NMConfigData *
 nm_config_data_new_keyfile (GKeyFile *keyfile,
                             NMConfigData *override,
-                            const char *override_log_level,
-                            const char *override_log_domains,
                             GError **error)
 {
 	NMConfigData *self;
@@ -242,12 +244,14 @@ nm_config_data_new_keyfile (GKeyFile *keyfile,
 	else
 		debug = g_key_file_get_value (keyfile, "main", "debug", NULL);
 
-	log_level = g_strdup (override_log_level);
-	if (!log_level)
+	if (nm_config_data_get_log_level (override))
+		log_level = g_strdup (nm_config_data_get_log_level (override));
+	else
 		log_level = g_key_file_get_value (keyfile, "logging", "level", NULL);
 
-	log_domains = g_strdup (override_log_domains);
-	if (!log_domains)
+	if (nm_config_data_get_log_domains (override))
+		log_domains = g_strdup (nm_config_data_get_log_domains (override));
+	else
 		log_domains = g_key_file_get_value (keyfile, "logging", "domains", NULL);
 
 	if (nm_config_data_get_connectivity_uri (override))
@@ -381,11 +385,6 @@ set_property (GObject *object,
 }
 
 static void
-dispose (GObject *object)
-{
-}
-
-static void
 finalize (GObject *gobject)
 {
 	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE (gobject);
@@ -414,7 +413,6 @@ nm_config_data_class_init (NMConfigDataClass *config_class)
 
 	g_type_class_add_private (config_class, sizeof (NMConfigDataPrivate));
 
-	object_class->dispose = dispose;
 	object_class->finalize = finalize;
 	object_class->get_property = get_property;
 	object_class->set_property = set_property;
