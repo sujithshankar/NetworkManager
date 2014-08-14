@@ -24,6 +24,7 @@
 #include "gsystem-local-alloc.h"
 
 #include "nm-config-data.h"
+#include "nm-logging.h"
 
 typedef struct {
 	struct {
@@ -192,6 +193,98 @@ nm_config_data_new_cli (GError **error)
 	                     NULL);
 }
 
+NMConfigData *
+nm_config_data_new_keyfile (GKeyFile *keyfile,
+                            NMConfigData *override,
+                            const char *override_log_level,
+                            const char *override_log_domains,
+                            GError **error)
+{
+	NMConfigData *self;
+	char **plugins = NULL;
+	char *dhcp_client = NULL, *dns_mode = NULL, *debug = NULL;
+	char *con_uri = NULL, *con_response = NULL, *log_level = NULL, *log_domains = NULL;
+	gboolean monitor_connection_files = FALSE;
+	guint con_interval = 0;
+	char *value;
+
+	if (nm_config_data_get_plugins (override))
+		plugins = g_strdupv ((gchar **) nm_config_data_get_plugins (override));
+	else
+		plugins = g_key_file_get_string_list (keyfile, "main", "plugins", NULL, NULL);
+
+	monitor_connection_files = nm_config_data_get_monitor_connection_files (override);
+	if (!monitor_connection_files) {
+		value = g_key_file_get_value (keyfile, "main", "monitor-connection-files", NULL);
+		if (value) {
+			if (!strcmp (value, "true") || !strcmp (value, "yes") || !strcmp (value, "on"))
+				monitor_connection_files = TRUE;
+			else if (!strcmp (value, "false") || !strcmp (value, "no") || !strcmp (value, "off"))
+				monitor_connection_files = FALSE;
+			else
+				nm_log_warn (LOGD_CORE, "Unrecognized value for main.monitor-connection-files: %s. Assuming 'false'", value);
+			g_free (value);
+		}
+	}
+
+	if (nm_config_data_get_dhcp_client (override))
+		dhcp_client = g_strdup (nm_config_data_get_dhcp_client (override));
+	else
+		dhcp_client = g_key_file_get_value (keyfile, "main", "dhcp", NULL);
+
+	if (nm_config_data_get_dhcp_client (override))
+		dns_mode = g_strdup (nm_config_data_get_dns_mode (override));
+	else
+		dns_mode = g_key_file_get_value (keyfile, "main", "dns", NULL);
+
+	if (nm_config_data_get_debug (override))
+		debug = g_strdup (nm_config_data_get_debug (override));
+	else
+		debug = g_key_file_get_value (keyfile, "main", "debug", NULL);
+
+	log_level = g_strdup (override_log_level);
+	if (!log_level)
+		log_level = g_key_file_get_value (keyfile, "logging", "level", NULL);
+
+	log_domains = g_strdup (override_log_domains);
+	if (!log_domains)
+		log_domains = g_key_file_get_value (keyfile, "logging", "domains", NULL);
+
+	if (nm_config_data_get_connectivity_uri (override))
+		con_uri = g_strdup (nm_config_data_get_connectivity_uri (override));
+	else
+		con_uri = g_key_file_get_value (keyfile, "connectivity", "uri", NULL);
+
+	con_interval = nm_config_data_get_connectivity_interval (override);
+	if (!con_interval)
+		con_interval = (guint) g_key_file_get_integer (keyfile, "connectivity", "interval", NULL);\
+	con_interval = CLAMP (con_interval, 0, G_MAXINT32);
+
+	if (nm_config_data_get_connectivity_response (override))
+		con_response = g_strdup (nm_config_data_get_connectivity_response (override));
+	else
+		con_response = g_key_file_get_value (keyfile, "connectivity", "response", NULL);
+
+	self = g_object_new (NM_TYPE_CONFIG_DATA,
+	                     NM_CONFIG_DATA_PLUGINS,               plugins,
+	                     NM_CONFIG_DATA_DHCP_CLIENT,           IGNORE_EMPTY (dhcp_client),
+	                     NM_CONFIG_DATA_DNS_MODE,              IGNORE_EMPTY (dns_mode),
+	                     NM_CONFIG_DATA_DEBUG,                 IGNORE_EMPTY (debug),
+	                     NM_CONFIG_DATA_LOG_LEVEL,             IGNORE_EMPTY (log_level),
+	                     NM_CONFIG_DATA_LOG_DOMAINS,           IGNORE_EMPTY (log_domains),
+	                     NM_CONFIG_DATA_CONNECTIVITY_URI,      IGNORE_EMPTY (con_uri),
+	                     NM_CONFIG_DATA_CONNECTIVITY_INTERVAL, con_interval,
+	                     NM_CONFIG_DATA_CONNECTIVITY_RESPONSE, IGNORE_EMPTY (con_response),
+	                     NULL);
+
+	g_strfreev (plugins);
+	g_free (dhcp_client);
+	g_free (dns_mode);
+	g_free (debug);
+	g_free (con_uri);
+	g_free (con_response);
+	return self;
+}
 
 /************************************************************************/
 
