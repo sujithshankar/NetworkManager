@@ -83,6 +83,11 @@ dhcpcd_child_setup (gpointer user_data G_GNUC_UNUSED)
 	 * mask for dhcpcd here so that it can receive signals.
 	 */
 	nm_unblock_posix_signals (NULL);
+
+	/* Ignore SIGPIPE.
+	 * Otherwise dhcpcd can be killed with it (when journald is restarted, for example).
+	 */
+	signal (SIGPIPE, SIG_IGN);
 }
 
 static gboolean
