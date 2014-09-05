@@ -40,7 +40,6 @@ typedef enum {
 	NM_VLAN_ERROR_CONNECTION_INCOMPATIBLE, /*< nick=ConnectionIncompatible >*/
 } NMVlanError;
 
-#define NM_DEVICE_VLAN_PARENT     "parent"
 #define NM_DEVICE_VLAN_ID         "vlan-id"
 
 typedef NMDevice NMDeviceVlan;
