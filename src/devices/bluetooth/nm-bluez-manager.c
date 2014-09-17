@@ -366,11 +366,9 @@ start (NMDeviceFactory *factory)
 	check_bluez_and_try_setup (NM_BLUEZ_MANAGER (factory));
 }
 
-static NMDeviceType
-get_device_type (NMDeviceFactory *factory)
-{
-	return NM_DEVICE_TYPE_BT;
-}
+DEFINE_DEVICE_FACTORY_SUPPORTED_TYPES (
+	DEFINE_FACTORY_SETTING_TYPES (NM_SETTING_BLUETOOTH_SETTING_NAME)
+)
 
 /*********************************************************************/
 
@@ -406,7 +404,7 @@ nm_bluez_manager_init (NMBluezManager *self)
 static void
 device_factory_interface_init (NMDeviceFactory *factory_iface)
 {
-	factory_iface->get_device_type = get_device_type;
+	factory_iface->get_supported_types = get_supported_types;
 	factory_iface->start = start;
 }
 
