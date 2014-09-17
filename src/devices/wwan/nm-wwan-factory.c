@@ -87,11 +87,10 @@ modem_added_cb (NMModemManager *manager,
 }
 
 
-static NMDeviceType
-get_device_type (NMDeviceFactory *factory)
-{
-	return NM_DEVICE_TYPE_MODEM;
-}
+DEFINE_DEVICE_FACTORY_SUPPORTED_TYPES (
+	DEFINE_FACTORY_LINK_TYPES    (NM_LINK_TYPE_WWAN_ETHERNET)
+	DEFINE_FACTORY_SETTING_TYPES (NM_SETTING_GSM_SETTING_NAME, NM_SETTING_CDMA_SETTING_NAME)
+)
 
 static void
 start (NMDeviceFactory *factory)
@@ -115,7 +114,7 @@ nm_wwan_factory_init (NMWwanFactory *self)
 static void
 device_factory_interface_init (NMDeviceFactory *factory_iface)
 {
-	factory_iface->get_device_type = get_device_type;
+	factory_iface->get_supported_types = get_supported_types;
 	factory_iface->start = start;
 }
 
