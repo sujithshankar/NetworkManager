@@ -127,8 +127,6 @@ static NMActiveConnection *_new_active_connection (NMManager *self,
 
 static void policy_activating_device_changed (GObject *object, GParamSpec *pspec, gpointer user_data);
 
-static NMDevice *find_device_by_ip_iface (NMManager *self, const gchar *iface);
-
 static void rfkill_change (const char *desc, RfKillType rtype, gboolean enabled);
 
 static gboolean find_master (NMManager *self,
@@ -504,6 +502,36 @@ nm_manager_get_device_by_ifindex (NMManager *manager, int ifindex)
 	return NULL;
 }
 
+static NMDevice *
+find_device_by_hw_addr (NMManager *manager, const char *hwaddr)
+{
+	GSList *iter;
+	const char *device_addr;
+
+	g_return_val_if_fail (hwaddr != NULL, NULL);
+
+	for (iter = NM_MANAGER_GET_PRIVATE (manager)->devices; iter; iter = iter->next) {
+		device_addr = nm_device_get_hw_address (NM_DEVICE (iter->data));
+		if (device_addr && nm_utils_hwaddr_matches (hwaddr, -1, device_addr, -1))
+			return NM_DEVICE (iter->data);
+	}
+	return NULL;
+}
+
+static NMDevice *
+find_device_by_ip_iface (NMManager *self, const gchar *iface)
+{
+	GSList *iter;
+
+	g_return_val_if_fail (iface != NULL, NULL);
+
+	for (iter = NM_MANAGER_GET_PRIVATE (self)->devices; iter; iter = g_slist_next (iter)) {
+		if (g_strcmp0 (nm_device_get_ip_iface (NM_DEVICE (iter->data)), iface) == 0)
+			return NM_DEVICE (iter->data);
+	}
+	return NULL;
+}
+
 static gboolean
 manager_sleeping (NMManager *self)
 {
@@ -812,109 +840,56 @@ nm_manager_get_state (NMManager *manager)
 	return NM_MANAGER_GET_PRIVATE (manager)->state;
 }
 
-/*******************************************************************/
-/* Settings stuff via NMSettings                                   */
-/*******************************************************************/
+/***************************/
 
 static NMDevice *
-get_device_from_hwaddr (NMManager *self, const char *setting_mac)
+find_parent_device_for_connection (NMManager *self, NMConnection *connection)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
-	const char *device_mac;
+	NMDeviceFactory *factory;
+	const char *parent_name = NULL;
+	NMConnection *parent_connection;
+	NMDevice *parent, *first_compatible = NULL;
 	GSList *iter;
 
-	if (!setting_mac)
+	factory = nm_device_factory_manager_find_factory_for_connection (connection);
+	if (!factory)
 		return NULL;
 
-	for (iter = priv->devices; iter; iter = g_slist_next (iter)) {
-		NMDevice *device = iter->data;
+	parent_name = nm_device_factory_get_connection_parent (factory, connection);
+	if (!parent_name)
+		return NULL;
 
-		device_mac = nm_device_get_hw_address (iter->data);
-		if (!device_mac)
-			continue;
-		if (nm_utils_hwaddr_matches (setting_mac, -1, device_mac, -1))
-			return device;
-	}
-	return NULL;
-}
+	/* Try as an interface name */
+	parent = find_device_by_ip_iface (self, parent_name);
+	if (parent)
+		return parent;
 
-static NMDevice *
-find_vlan_parent (NMManager *self,
-                  NMConnection *connection)
-{
-	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
-	NMSettingVlan *s_vlan;
-	NMSettingWired *s_wired;
-	NMConnection *parent_connection;
-	const char *parent_iface;
-	NMDevice *parent = NULL;
-	const char *setting_mac;
-	GSList *iter;
+	/* Maybe a hardware address */
+	parent = find_device_by_hw_addr (self, parent_name);
+	if (parent)
+		return parent;
 
-	/* The 'parent' property could be given by an interface name, a
-	 * connection UUID, or the MAC address of an NMSettingWired.
+	/* Maybe a connection UUID */
+	parent_connection = (NMConnection *) nm_settings_get_connection_by_uuid (priv->settings, parent_name);
+	if (!parent_connection)
+		return NULL;
+
+	/* Check if the parent connection is currently activated or is comaptible
+	 * with some known device.
 	 */
-	s_vlan = nm_connection_get_setting_vlan (connection);
-	g_return_val_if_fail (s_vlan != NULL, NULL);
+	for (iter = priv->devices; iter; iter = iter->next) {
+		NMDevice *candidate = iter->data;
 
-	s_wired = nm_connection_get_setting_wired (connection);
-	setting_mac = s_wired ? nm_setting_wired_get_mac_address (s_wired) : NULL;
+		if (nm_device_get_connection (candidate) == parent_connection)
+			return candidate;
 
-	parent_iface = nm_setting_vlan_get_parent (s_vlan);
-	if (parent_iface) {
-		parent = find_device_by_ip_iface (self, parent_iface);
-		if (parent)
-			return parent;
-
-		if (nm_utils_is_uuid (parent_iface)) {
-			/* Try as a connection UUID */
-			parent_connection = (NMConnection *) nm_settings_get_connection_by_uuid (priv->settings, parent_iface);
-			if (parent_connection) {
-				/* Check if the parent connection is activated on some device already */
-				for (iter = priv->devices; iter; iter = g_slist_next (iter)) {
-					NMActRequest *req;
-					NMConnection *candidate;
-
-					req = nm_device_get_act_request (NM_DEVICE (iter->data));
-					if (req) {
-						candidate = nm_active_connection_get_connection (NM_ACTIVE_CONNECTION (req));
-						if (candidate == parent_connection)
-							return NM_DEVICE (iter->data);
-					}
-				}
-
-				/* Check the hardware address of the parent connection */
-				return get_device_from_hwaddr (self, setting_mac);
-			}
-			return NULL;
-		}
+		if (   !first_compatible
+		    && nm_device_check_connection_compatible (candidate, parent_connection))
+			first_compatible = candidate;
 	}
 
-	/* Try the hardware address from the VLAN connection's hardware setting */
-	return get_device_from_hwaddr (self, setting_mac);
-}
-
-static NMDevice *
-find_infiniband_parent (NMManager *self,
-                        NMConnection *connection)
-{
-	NMSettingInfiniband *s_infiniband;
-	const char *parent_iface;
-	NMDevice *parent = NULL;
-	const char *setting_mac;
-
-	s_infiniband = nm_connection_get_setting_infiniband (connection);
-	g_return_val_if_fail (s_infiniband != NULL, NULL);
-
-	parent_iface = nm_setting_infiniband_get_parent (s_infiniband);
-	if (parent_iface) {
-		parent = find_device_by_ip_iface (self, parent_iface);
-		if (parent)
-			return parent;
-	}
-
-	setting_mac = nm_setting_infiniband_get_mac_address (s_infiniband);
-	return get_device_from_hwaddr (self, setting_mac);
+	return first_compatible;
 }
 
 /**
@@ -924,9 +899,7 @@ find_infiniband_parent (NMManager *self,
  * @out_parent: on success, the parent device if any
  *
  * Given @connection, returns the interface name that the connection
- * would represent.  If the interface name is not given by the connection,
- * this may require constructing it based on information in the connection
- * and existing network interfaces.
+ * would represent.
  *
  * Returns: the expected interface name (caller takes ownership), or %NULL
  */
@@ -935,8 +908,9 @@ get_virtual_iface_name (NMManager *self,
                         NMConnection *connection,
                         NMDevice **out_parent)
 {
+	NMDeviceFactory *factory;
+	char *iface = NULL;
 	NMDevice *parent = NULL;
-	const char *ifname;
 
 	if (out_parent)
 		*out_parent = NULL;
@@ -944,63 +918,27 @@ get_virtual_iface_name (NMManager *self,
 	if (!nm_connection_is_virtual (connection))
 		return NULL;
 
-	ifname = nm_connection_get_interface_name (connection);
-
-	if (nm_connection_is_type (connection, NM_SETTING_VLAN_SETTING_NAME)) {
-		NMSettingVlan *s_vlan;
-		char *vname;
-
-		s_vlan = nm_connection_get_setting_vlan (connection);
-		g_return_val_if_fail (s_vlan != NULL, NULL);
-
-		parent = find_vlan_parent (self, connection);
-		if (!parent)
-			return NULL;
-
-		if (!nm_device_supports_vlans (parent)) {
-			nm_log_warn (LOGD_DEVICE, "(%s): No support for VLANs on interface %s of type %s",
-			             ifname ? ifname : nm_connection_get_id (connection),
-			             nm_device_get_ip_iface (parent),
-			             nm_device_get_type_desc (parent));
-			return NULL;
-		}
-
-		/* If the connection doesn't specify the interface name for the VLAN
-		 * device, we create one for it using the VLAN ID and the parent
-		 * interface's name.
-		 */
-		if (ifname)
-			vname = g_strdup (ifname);
-		else {
-			vname = nm_utils_new_vlan_name (nm_device_get_ip_iface (parent),
-			                                nm_setting_vlan_get_id (s_vlan));
-		}
-		if (out_parent)
-			*out_parent = parent;
-		return vname;
+	factory = nm_device_factory_manager_find_factory_for_connection (connection);
+	if (!factory) {
+		nm_log_warn (LOGD_DEVICE, "(%s) failed to find device factory for connection type",
+		            nm_connection_get_id (connection));
+		return NULL;
 	}
 
-	if (nm_connection_is_type (connection, NM_SETTING_INFINIBAND_SETTING_NAME)) {
-		NMSettingInfiniband *s_infiniband;
-
-		parent = find_infiniband_parent (self, connection);
-		if (!parent)
-			return NULL;
-
-		s_infiniband = nm_connection_get_setting_infiniband (connection);
-		if (out_parent)
-			*out_parent = parent;
-		return g_strdup (nm_setting_infiniband_get_virtual_interface_name (s_infiniband));
+	parent = find_parent_device_for_connection (self, connection);
+	iface = nm_device_factory_get_virtual_iface_name (factory,
+	                                                  connection,
+	                                                  parent ? nm_device_get_ip_iface (parent) : NULL);
+	if (!iface) {
+		nm_log_dbg (LOGD_DEVICE, "(%s) failed to determine virtual interface name",
+		            nm_connection_get_id (connection));
+		return NULL;
 	}
 
-	/* For any other virtual connection, NMSettingConnection:interface-name is
-	 * the virtual device name.
-	 */
-	g_return_val_if_fail (ifname != NULL, NULL);
-	return g_strdup (ifname);
+	if (out_parent)
+		*out_parent = parent;
+	return iface;
 }
-
-/***************************/
 
 /**
  * system_create_virtual_device:
@@ -1024,11 +962,8 @@ system_create_virtual_device (NMManager *self, NMConnection *connection)
 	gboolean nm_owned = FALSE;
 
 	iface = get_virtual_iface_name (self, connection, &parent);
-	if (!iface) {
-		nm_log_dbg (LOGD_DEVICE, "(%s) failed to determine virtual interface name",
-		            nm_connection_get_id (connection));
+	if (!iface)
 		return NULL;
-	}
 
 	/* Make sure we didn't create a device for this connection already */
 	for (iter = priv->devices; iter; iter = g_slist_next (iter)) {
@@ -1832,21 +1767,6 @@ add_device (NMManager *self, NMDevice *device, gboolean try_assume)
 	system_create_virtual_devices (self);
 }
 
-static NMDevice *
-find_device_by_ip_iface (NMManager *self, const gchar *iface)
-{
-	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
-	GSList *iter;
-
-	for (iter = priv->devices; iter; iter = g_slist_next (iter)) {
-		NMDevice *candidate = iter->data;
-
-		if (g_strcmp0 (nm_device_get_ip_iface (candidate), iface) == 0)
-			return candidate;
-	}
-	return NULL;
-}
-
 /*******************************************************************/
 
 static void
@@ -2163,13 +2083,10 @@ find_master (NMManager *self,
 				NMConnection *candidate = iter->data;
 				char *vname;
 
-				if (nm_connection_is_virtual (candidate)) {
-					vname = get_virtual_iface_name (self, candidate, NULL);
-					if (   g_strcmp0 (master, vname) == 0
-					    && is_compatible_with_slave (candidate, connection))
-						master_connection = candidate;
-					g_free (vname);
-				}
+				vname = get_virtual_iface_name (self, connection, NULL);
+				if (g_strcmp0 (master, vname) == 0 && is_compatible_with_slave (candidate, connection))
+					master_connection = candidate;
+				g_free (vname);
 			}
 			g_slist_free (connections);
 		}
@@ -2845,9 +2762,9 @@ validate_activation_request (NMManager *self,
 		}
 
 		if (is_software) {
-			/* Look for an existing device with the connection's interface name */
 			char *iface;
 
+			/* Look for an existing device with the connection's interface name */
 			iface = get_virtual_iface_name (self, connection, NULL);
 			if (!iface) {
 				g_set_error_literal (error,
