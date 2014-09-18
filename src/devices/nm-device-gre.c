@@ -30,7 +30,7 @@
 #include "nm-platform.h"
 #include "nm-device-factory.h"
 
-#include "nm-device-gre-glue.h"
+#include "nmdbus-device-gre.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceGre);
@@ -135,7 +135,7 @@ get_property (GObject *object, guint prop_id,
 	switch (prop_id) {
 	case PROP_PARENT:
 		parent = nm_manager_get_device_by_ifindex (nm_manager_get (), priv->props.parent_ifindex);
-		g_value_set_boxed (value, parent ? nm_device_get_path (parent) : "/");
+		g_value_set_string (value, parent ? nm_device_get_path (parent) : "/");
 		break;
 	case PROP_INPUT_FLAGS:
 		g_value_set_uint (value, priv->props.input_flags);
@@ -186,10 +186,10 @@ nm_device_gre_class_init (NMDeviceGreClass *klass)
 	/* properties */
 	g_object_class_install_property
 		(object_class, PROP_PARENT,
-		 g_param_spec_boxed (NM_DEVICE_GRE_PARENT, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READABLE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_GRE_PARENT, "", "",
+		                      NULL,
+		                      G_PARAM_READABLE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_INPUT_FLAGS,
@@ -254,9 +254,9 @@ nm_device_gre_class_init (NMDeviceGreClass *klass)
 		                       G_PARAM_READABLE |
 		                       G_PARAM_STATIC_STRINGS));
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_gre_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_GRE,
+	                               NULL);
 }
 
 /*************************************************************/

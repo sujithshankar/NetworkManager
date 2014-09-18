@@ -40,7 +40,7 @@ G_DEFINE_TYPE (NMDeviceModem, nm_device_modem, NM_TYPE_DEVICE)
 
 #define NM_DEVICE_MODEM_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_DEVICE_MODEM, NMDeviceModemPrivate))
 
-#include "nm-device-modem-glue.h"
+#include "nmdbus-device-modem.h"
 
 typedef struct {
 	NMModem *modem;

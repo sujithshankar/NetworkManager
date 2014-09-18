@@ -40,7 +40,7 @@
 #include "nm-setting-gsm.h"
 #include "nm-setting-serial.h"
 #include "nm-setting-ppp.h"
-#include "nm-device-bt-glue.h"
+#include "nmdbus-device-bt.h"
 #include "NetworkManagerUtils.h"
 #include "nm-bt-enum-types.h"
 #include "nm-utils.h"
@@ -1227,5 +1227,5 @@ nm_device_bt_class_init (NMDeviceBtClass *klass)
 	                                        G_TYPE_FROM_CLASS (klass),
 	                                        &dbus_glib_nm_device_bt_object_info);
 
-	dbus_g_error_domain_register (NM_BT_ERROR, NULL, NM_TYPE_BT_ERROR);
+	_nm_dbus_register_error_domain (NM_BT_ERROR, NULL, NM_TYPE_BT_ERROR);
 }

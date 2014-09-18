@@ -54,7 +54,7 @@ typedef struct {
 } NMAuthSubjectPrivate;
 
 static NMAuthSubject *
-_new_common (DBusGMethodInvocation *context,
+_new_common (GDBusMethodInvocation *invocation,
              DBusConnection *connection,
              DBusMessage *message,
              gboolean internal)
@@ -64,9 +64,9 @@ _new_common (DBusGMethodInvocation *context,
 	NMDBusManager *dbus_mgr;
 	gboolean success = FALSE;
 
-	g_return_val_if_fail (context || (connection && message) || internal, NULL);
+	g_return_val_if_fail (invocation || (connection && message) || internal, NULL);
 	if (internal)
-		g_return_val_if_fail (context == NULL && connection == NULL && message == NULL, NULL);
+		g_return_val_if_fail (invocation == NULL && connection == NULL && message == NULL, NULL);
 
 	subject = NM_AUTH_SUBJECT (g_object_new (NM_TYPE_AUTH_SUBJECT, NULL));
 	priv = NM_AUTH_SUBJECT_GET_PRIVATE (subject);
@@ -79,9 +79,9 @@ _new_common (DBusGMethodInvocation *context,
 		return subject;
 	}
 
-	if (context) {
+	if (invocation) {
 		success = nm_dbus_manager_get_caller_info (dbus_mgr,
-		                                           context,
+		                                           invocation,
 		                                           &priv->dbus_sender,
 		                                           &priv->uid,
 		                                           &priv->pid);
@@ -118,9 +118,9 @@ _new_common (DBusGMethodInvocation *context,
 
 
 NMAuthSubject *
-nm_auth_subject_new_from_context (DBusGMethodInvocation *context)
+nm_auth_subject_new_from_context (GDBusMethodInvocation *invocation)
 {
-	return _new_common (context, NULL, NULL, FALSE);
+	return _new_common (invocation, NULL, NULL, FALSE);
 }
 
 NMAuthSubject *

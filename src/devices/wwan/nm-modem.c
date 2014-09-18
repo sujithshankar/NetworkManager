@@ -28,7 +28,6 @@
 #include "nm-logging.h"
 #include "NetworkManagerUtils.h"
 #include "nm-device-private.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-modem-enum-types.h"
 
 G_DEFINE_TYPE (NMModem, nm_modem, G_TYPE_OBJECT)
@@ -1401,7 +1400,7 @@ nm_modem_class_init (NMModemClass *klass)
 		              NULL, NULL, NULL,
 		              G_TYPE_NONE, 2, NM_TYPE_MODEM_STATE, NM_TYPE_MODEM_STATE);
 
-	dbus_g_error_domain_register (NM_MODEM_ERROR,
+	_nm_dbus_register_error_domain (NM_MODEM_ERROR,
 	                              NM_DBUS_INTERFACE_DEVICE_MODEM,
 	                              NM_TYPE_MODEM_ERROR);
 }

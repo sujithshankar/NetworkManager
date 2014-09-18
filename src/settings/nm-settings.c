@@ -29,8 +29,6 @@
 #include <string.h>
 #include <gmodule.h>
 #include <pwd.h>
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib-lowlevel.h>
 
 #include <nm-dbus-interface.h>
 #include <nm-connection.h>
@@ -55,7 +53,6 @@
 #include "nm-core-internal.h"
 
 #include "nm-device-ethernet.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-settings.h"
 #include "nm-settings-connection.h"
 #include "nm-settings-error.h"
@@ -70,6 +67,9 @@
 #include "nm-connection-provider.h"
 #include "nm-config.h"
 #include "NetworkManagerUtils.h"
+
+#include "nm-object.h"
+#include "nmdbus-settings.h"
 
 /* LINKER CRACKROCK */
 #define EXPORT(sym) void * __export_##sym = &sym;
@@ -89,35 +89,6 @@ static void claim_connection (NMSettings *self,
                               NMSettingsConnection *connection,
                               gboolean do_export);
 
-static gboolean impl_settings_list_connections (NMSettings *self,
-                                                GPtrArray **connections,
-                                                GError **error);
-
-static void impl_settings_get_connection_by_uuid (NMSettings *self,
-                                                  const char *uuid,
-                                                  DBusGMethodInvocation *context);
-
-static void impl_settings_add_connection (NMSettings *self,
-                                          GHashTable *settings,
-                                          DBusGMethodInvocation *context);
-
-static void impl_settings_add_connection_unsaved (NMSettings *self,
-                                                  GHashTable *settings,
-                                                  DBusGMethodInvocation *context);
-
-static void impl_settings_load_connections (NMSettings *self,
-                                            char **filenames,
-                                            DBusGMethodInvocation *context);
-
-static void impl_settings_reload_connections (NMSettings *self,
-                                              DBusGMethodInvocation *context);
-
-static void impl_settings_save_hostname (NMSettings *self,
-                                         const char *hostname,
-                                         DBusGMethodInvocation *context);
-
-#include "nm-settings-glue.h"
-
 static void unmanaged_specs_changed (NMSystemConfigInterface *config, gpointer user_data);
 static void unrecognized_specs_changed (NMSystemConfigInterface *config, gpointer user_data);
 
@@ -128,8 +99,6 @@ G_DEFINE_TYPE_EXTENDED (NMSettings, nm_settings, G_TYPE_OBJECT, 0,
 
 
 typedef struct {
-	NMDBusManager *dbus_mgr;
-
 	NMAgentManager *agent_mgr;
 
 	NMConfig *config;
@@ -155,7 +124,6 @@ enum {
 	CONNECTION_VISIBILITY_CHANGED,
 	AGENT_REGISTERED,
 
-	NEW_CONNECTION, /* exported, not used internally */
 	LAST_SIGNAL
 };
 static guint signals[LAST_SIGNAL] = { 0 };
@@ -235,17 +203,23 @@ nm_settings_for_each_connection (NMSettings *self,
 
 static gboolean
 impl_settings_list_connections (NMSettings *self,
-                                GPtrArray **connections,
-                                GError **error)
+                                GDBusMethodInvocation *context)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
+	GPtrArray *connections;
 	GHashTableIter iter;
 	gpointer key;
 
-	*connections = g_ptr_array_sized_new (g_hash_table_size (priv->connections) + 1);
+	connections = g_ptr_array_sized_new (g_hash_table_size (priv->connections) + 1);
 	g_hash_table_iter_init (&iter, priv->connections);
 	while (g_hash_table_iter_next (&iter, &key, NULL))
-		g_ptr_array_add (*connections, g_strdup ((const char *) key));
+		g_ptr_array_add (connections, g_strdup ((const char *) key));
+	g_ptr_array_add (connections, NULL);
+
+	g_dbus_method_invocation_return_value (context,
+	                                       g_variant_new ("(as)", (char **) connections->pdata));
+	g_ptr_array_free (connections, TRUE);
+
 	return TRUE;
 }
 
@@ -270,10 +244,10 @@ nm_settings_get_connection_by_uuid (NMSettings *self, const char *uuid)
 	return NULL;
 }
 
-static void
+static gboolean
 impl_settings_get_connection_by_uuid (NMSettings *self,
                                       const char *uuid,
-                                      DBusGMethodInvocation *context)
+                                      GDBusMethodInvocation *context)
 {
 	NMSettingsConnection *connection = NULL;
 	NMAuthSubject *subject = NULL;
@@ -308,14 +282,16 @@ impl_settings_get_connection_by_uuid (NMSettings *self,
 	}
 
 	g_clear_object (&subject);
-	dbus_g_method_return (context, nm_connection_get_path (NM_CONNECTION (connection)));
-	return;
+	g_dbus_method_invocation_return_value (context,
+	                                       g_variant_new ("(s)", nm_connection_get_path (NM_CONNECTION (connection))));
+	return TRUE;
 
 error:
 	g_assert (error);
-	dbus_g_method_return_error (context, error);
-	g_error_free (error);
+	g_dbus_method_invocation_take_error (context, error);
 	g_clear_object (&subject);
+
+	return TRUE;
 }
 
 static int
@@ -378,51 +354,6 @@ nm_settings_get_connection_by_path (NMSettings *self, const char *path)
 	priv = NM_SETTINGS_GET_PRIVATE (self);
 
 	return (NMSettingsConnection *) g_hash_table_lookup (priv->connections, path);
-}
-
-static char*
-uscore_to_wincaps (const char *uscore)
-{
-	const char *p;
-	GString *str;
-	gboolean last_was_uscore;
-
-	last_was_uscore = TRUE;
-  
-	str = g_string_new (NULL);
-	p = uscore;
-	while (p && *p) {
-		if (*p == '-' || *p == '_')
-			last_was_uscore = TRUE;
-		else {
-			if (last_was_uscore) {
-				g_string_append_c (str, g_ascii_toupper (*p));
-				last_was_uscore = FALSE;
-			} else
-				g_string_append_c (str, *p);
-		}
-		++p;
-	}
-
-	return g_string_free (str, FALSE);
-}
-
-static void
-notify (GObject *object, GParamSpec *pspec)
-{
-	GValue *value;
-	GHashTable *hash;
-
-	value = g_slice_new0 (GValue);
-	hash = g_hash_table_new_full (g_str_hash, g_str_equal, (GDestroyNotify) g_free, NULL);
-
-	g_value_init (value, pspec->value_type);
-	g_object_get_property (object, pspec->name, value);
-	g_hash_table_insert (hash, uscore_to_wincaps (pspec->name), value);
-	g_signal_emit (object, signals[PROPERTIES_CHANGED], 0, hash);
-	g_hash_table_destroy (hash);
-	g_value_unset (value);
-	g_slice_free (GValue, value);
 }
 
 const GSList *
@@ -750,6 +681,9 @@ connection_removed (NMSettingsConnection *connection, gpointer user_data)
 	                     (gpointer) nm_connection_get_path (NM_CONNECTION (connection)));
 
 	/* Notify D-Bus */
+	nm_object_emit_dbus_signal (NM_OBJECT (self),
+	                            "ConnectionRemoved",
+	                            nm_connection_get_path (NM_CONNECTION (connection)));
 	g_signal_emit (self, signals[CONNECTION_REMOVED], 0, connection);
 
 	/* Re-emit for listeners like NMPolicy */
@@ -866,9 +800,7 @@ claim_connection (NMSettings *self,
 	/* Export the connection over D-Bus */
 	g_warn_if_fail (nm_connection_get_path (NM_CONNECTION (connection)) == NULL);
 	path = g_strdup_printf ("%s/%u", NM_DBUS_PATH_SETTINGS, ec_counter++);
-	nm_connection_set_path (NM_CONNECTION (connection), path);
-	nm_dbus_manager_register_object (priv->dbus_mgr, path, G_OBJECT (connection));
-	g_free (path);
+	nm_settings_connection_export (connection, path);
 
 	g_hash_table_insert (priv->connections,
 	                     (gpointer) nm_connection_get_path (NM_CONNECTION (connection)),
@@ -883,9 +815,10 @@ claim_connection (NMSettings *self,
 		g_signal_emit_by_name (self, NM_CP_SIGNAL_CONNECTION_ADDED, connection);
 		g_object_notify (G_OBJECT (self), NM_SETTINGS_CONNECTIONS);
 
-		/* Exported D-Bus signal */
-		g_signal_emit (self, signals[NEW_CONNECTION], 0, connection);
+		nm_object_emit_dbus_signal (NM_OBJECT (self), "NewConnection", path);
 	}
+
+	g_free (path);
 }
 
 /**
@@ -1008,7 +941,7 @@ send_agent_owned_secrets (NMSettings *self,
 static void
 pk_add_cb (NMAuthChain *chain,
            GError *chain_error,
-           DBusGMethodInvocation *context,
+           GDBusMethodInvocation *context,
            gpointer user_data)
 {
 	NMSettings *self = NM_SETTINGS (user_data);
@@ -1096,11 +1029,11 @@ is_adhoc_wpa (NMConnection *connection)
 
 void
 nm_settings_add_connection_dbus (NMSettings *self,
-                            NMConnection *connection,
-                            gboolean save_to_disk,
-                            DBusGMethodInvocation *context,
-                            NMSettingsAddCallback callback,
-                            gpointer user_data)
+                                 NMConnection *connection,
+                                 gboolean save_to_disk,
+                                 GDBusMethodInvocation *context,
+                                 NMSettingsAddCallback callback,
+                                 gpointer user_data)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	NMSettingConnection *s_con;
@@ -1205,20 +1138,20 @@ static void
 impl_settings_add_connection_add_cb (NMSettings *self,
                                      NMSettingsConnection *connection,
                                      GError *error,
-                                     DBusGMethodInvocation *context,
+                                     GDBusMethodInvocation *context,
                                      gpointer user_data)
 {
 	if (error)
-		dbus_g_method_return_error (context, error);
+		g_dbus_method_invocation_return_gerror (context, error);
 	else
-		dbus_g_method_return (context, nm_connection_get_path (NM_CONNECTION (connection)));
+		g_dbus_method_invocation_return_value (context, g_variant_new ("(s)", nm_connection_get_path (NM_CONNECTION (connection))));
 }
 
 static void
 impl_settings_add_connection_helper (NMSettings *self,
-                                     GHashTable *settings,
+                                     GVariant *settings,
                                      gboolean save_to_disk,
-                                     DBusGMethodInvocation *context)
+                                     GDBusMethodInvocation *context)
 {
 	NMConnection *connection;
 	GVariant *dict;
@@ -1237,30 +1170,31 @@ impl_settings_add_connection_helper (NMSettings *self,
 		g_object_unref (connection);
 	} else {
 		g_assert (error);
-		dbus_g_method_return_error (context, error);
-		g_error_free (error);
+		g_dbus_method_invocation_take_error (context, error);
 	}
 }
 
-static void
+static gboolean
 impl_settings_add_connection (NMSettings *self,
-                              GHashTable *settings,
-                              DBusGMethodInvocation *context)
+                              GVariant *settings,
+                              GDBusMethodInvocation *context)
 {
 	impl_settings_add_connection_helper (self, settings, TRUE, context);
+	return TRUE;
 }
 
-static void
+static gboolean
 impl_settings_add_connection_unsaved (NMSettings *self,
-                                      GHashTable *settings,
-                                      DBusGMethodInvocation *context)
+                                      GVariant *settings,
+                                      GDBusMethodInvocation *context)
 {
 	impl_settings_add_connection_helper (self, settings, FALSE, context);
+	return TRUE;
 }
 
 static gboolean
 ensure_root (NMDBusManager         *dbus_mgr,
-             DBusGMethodInvocation *context)
+             GDBusMethodInvocation *context)
 {
 	gulong caller_uid;
 	GError *error = NULL;
@@ -1269,34 +1203,32 @@ ensure_root (NMDBusManager         *dbus_mgr,
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
 		                             "Unable to determine request UID.");
-		dbus_g_method_return_error (context, error);
-		g_error_free (error);
+		g_dbus_method_invocation_take_error (context, error);
 		return FALSE;
 	}
 	if (caller_uid != 0) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
 		                             "Permission denied");
-		dbus_g_method_return_error (context, error);
-		g_error_free (error);
+		g_dbus_method_invocation_take_error (context, error);
 		return FALSE;
 	}
 
 	return TRUE;
 }
 
-static void
+static gboolean
 impl_settings_load_connections (NMSettings *self,
                                 char **filenames,
-                                DBusGMethodInvocation *context)
+                                GDBusMethodInvocation *context)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	GPtrArray *failures;
 	GSList *iter;
 	int i;
 
-	if (!ensure_root (priv->dbus_mgr, context))
-		return;
+	if (!ensure_root (nm_dbus_manager_get (), context))
+		return TRUE;
 
 	failures = g_ptr_array_new ();
 
@@ -1316,19 +1248,24 @@ impl_settings_load_connections (NMSettings *self,
 	}
 
 	g_ptr_array_add (failures, NULL);
-	dbus_g_method_return (context, failures->len == 1, failures->pdata);
+	g_dbus_method_invocation_return_value (context,
+	                                       g_variant_new ("(bas)",
+	                                                      failures->len == 1,
+	                                                      (char **) failures->pdata));
 	g_ptr_array_unref (failures);
+
+	return TRUE;
 }
 
-static void
+static gboolean
 impl_settings_reload_connections (NMSettings *self,
-                                  DBusGMethodInvocation *context)
+                                  GDBusMethodInvocation *context)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	GSList *iter;
 
-	if (!ensure_root (priv->dbus_mgr, context))
-		return;
+	if (!ensure_root (nm_dbus_manager_get (), context))
+		return TRUE;
 
 	for (iter = priv->plugins; iter; iter = g_slist_next (iter)) {
 		NMSystemConfigInterface *plugin = NM_SYSTEM_CONFIG_INTERFACE (iter->data);
@@ -1336,13 +1273,14 @@ impl_settings_reload_connections (NMSettings *self,
 		nm_system_config_interface_reload_connections (plugin);
 	}
 
-	dbus_g_method_return (context, TRUE);
+	g_dbus_method_invocation_return_value (context, g_variant_new ("(b)", TRUE));
+	return TRUE;
 }
 
 static void
 pk_hostname_cb (NMAuthChain *chain,
                 GError *chain_error,
-                DBusGMethodInvocation *context,
+                GDBusMethodInvocation *context,
                 gpointer user_data)
 {
 	NMSettings *self = NM_SETTINGS (user_data);
@@ -1388,11 +1326,10 @@ pk_hostname_cb (NMAuthChain *chain,
 	}
 
 	if (error)
-		dbus_g_method_return_error (context, error);
+		g_dbus_method_invocation_take_error (context, error);
 	else
-		dbus_g_method_return (context);
+		g_dbus_method_invocation_return_value (context, NULL);
 
-	g_clear_error (&error);
 	nm_auth_chain_unref (chain);
 }
 
@@ -1423,10 +1360,10 @@ validate_hostname (const char *hostname)
 	return (p - hostname <= HOST_NAME_MAX);
 }
 
-static void
+static gboolean
 impl_settings_save_hostname (NMSettings *self,
                              const char *hostname,
-                             DBusGMethodInvocation *context)
+                             GDBusMethodInvocation *context)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	NMAuthChain *chain;
@@ -1462,8 +1399,9 @@ impl_settings_save_hostname (NMSettings *self,
 
 done:
 	if (error)
-		dbus_g_method_return_error (context, error);
-	g_clear_error (&error);
+		g_dbus_method_invocation_take_error (context, error);
+
+	return TRUE;
 }
 
 static gboolean
@@ -1761,7 +1699,6 @@ nm_settings_new (GError **error)
 	priv = NM_SETTINGS_GET_PRIVATE (self);
 
 	priv->config = nm_config_get ();
-	priv->dbus_mgr = nm_dbus_manager_get ();
 
 	/* Load the plugins; fail if a plugin is not found. */
 	if (!load_plugins (self, nm_config_get_plugins (priv->config), error)) {
@@ -1771,7 +1708,7 @@ nm_settings_new (GError **error)
 
 	load_connections (self);
 
-	nm_dbus_manager_register_object (priv->dbus_mgr, NM_DBUS_PATH_SETTINGS, self);
+	nm_object_export (NM_OBJECT (self), NM_DBUS_PATH_SETTINGS);
 	return self;
 }
 
@@ -1810,8 +1747,6 @@ dispose (GObject *object)
 	g_slist_free_full (priv->auths, (GDestroyNotify) nm_auth_chain_unref);
 	priv->auths = NULL;
 
-	priv->dbus_mgr = NULL;
-
 	g_object_unref (priv->agent_mgr);
 
 	G_OBJECT_CLASS (nm_settings_parent_class)->dispose (object);
@@ -1841,17 +1776,18 @@ get_property (GObject *object, guint prop_id,
 	NMSettings *self = NM_SETTINGS (object);
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	const GSList *specs, *iter;
-	GSList *copy = NULL;
 	GHashTableIter citer;
 	GPtrArray *array;
 	const char *path;
 
 	switch (prop_id) {
 	case PROP_UNMANAGED_SPECS:
+		array = g_ptr_array_new ();
 		specs = nm_settings_get_unmanaged_specs (self);
 		for (iter = specs; iter; iter = g_slist_next (iter))
-			copy = g_slist_append (copy, g_strdup (iter->data));
-		g_value_take_boxed (value, copy);
+			g_ptr_array_add (array, g_strdup (iter->data));
+		g_ptr_array_add (array, NULL);
+		g_value_take_boxed (value, (char **) g_ptr_array_free (array, FALSE));
 		break;
 	case PROP_HOSTNAME:
 		g_value_take_string (value, nm_settings_get_hostname (self));
@@ -1864,11 +1800,12 @@ get_property (GObject *object, guint prop_id,
 		g_value_set_boolean (value, !!get_plugin (self, NM_SYSTEM_CONFIG_INTERFACE_CAP_MODIFY_CONNECTIONS));
 		break;
 	case PROP_CONNECTIONS:
-		array = g_ptr_array_sized_new (g_hash_table_size (priv->connections));
+		array = g_ptr_array_sized_new (g_hash_table_size (priv->connections) + 1);
 		g_hash_table_iter_init (&citer, priv->connections);
 		while (g_hash_table_iter_next (&citer, (gpointer) &path, NULL))
 			g_ptr_array_add (array, g_strdup (path));
-		g_value_take_boxed (value, array);
+		g_ptr_array_add (array, NULL);
+		g_value_take_boxed (value, (char **) g_ptr_array_free (array, FALSE));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1884,7 +1821,6 @@ nm_settings_class_init (NMSettingsClass *class)
 	g_type_class_add_private (class, sizeof (NMSettingsPrivate));
 
 	/* virtual methods */
-	object_class->notify = notify;
 	object_class->get_property = get_property;
 	object_class->dispose = dispose;
 	object_class->finalize = finalize;
@@ -1894,7 +1830,7 @@ nm_settings_class_init (NMSettingsClass *class)
 	g_object_class_install_property
 		(object_class, PROP_UNMANAGED_SPECS,
 		 g_param_spec_boxed (NM_SETTINGS_UNMANAGED_SPECS, "", "",
-		                     DBUS_TYPE_G_LIST_OF_STRING,
+		                     G_TYPE_STRV,
 		                     G_PARAM_READABLE |
 		                     G_PARAM_STATIC_STRINGS));
 
@@ -1915,19 +1851,11 @@ nm_settings_class_init (NMSettingsClass *class)
 	g_object_class_install_property
 		(object_class, PROP_CONNECTIONS,
 		 g_param_spec_boxed (NM_SETTINGS_CONNECTIONS, "", "",
-		                     DBUS_TYPE_G_ARRAY_OF_OBJECT_PATH,
+		                     G_TYPE_STRV,
 		                     G_PARAM_READABLE |
 		                     G_PARAM_STATIC_STRINGS));
 
 	/* signals */
-	signals[PROPERTIES_CHANGED] = 
-	                g_signal_new ("properties-changed",
-	                              G_OBJECT_CLASS_TYPE (object_class),
-	                              G_SIGNAL_RUN_FIRST,
-	                              G_STRUCT_OFFSET (NMSettingsClass, properties_changed),
-	                              NULL, NULL,
-	                              g_cclosure_marshal_VOID__BOXED,
-	                              G_TYPE_NONE, 1, DBUS_TYPE_G_MAP_OF_VARIANT);
 	signals[CONNECTION_ADDED] = 
 	                g_signal_new (NM_SETTINGS_SIGNAL_CONNECTION_ADDED,
 	                              G_OBJECT_CLASS_TYPE (object_class),
@@ -1983,38 +1911,40 @@ nm_settings_class_init (NMSettingsClass *class)
 		              G_TYPE_NONE, 1, G_TYPE_OBJECT);
 
 
-	signals[NEW_CONNECTION] = 
-	                g_signal_new ("new-connection",
-	                              G_OBJECT_CLASS_TYPE (object_class),
-	                              G_SIGNAL_RUN_FIRST, 0, NULL, NULL,
-	                              g_cclosure_marshal_VOID__OBJECT,
-	                              G_TYPE_NONE, 1, G_TYPE_OBJECT);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (class),
+	                               NMDBUS_TYPE_SETTINGS,
+	                               "AddConnection", impl_settings_add_connection,
+	                               "AddConnectionUnsaved", impl_settings_add_connection_unsaved,
+	                               "GetConnectionByUuid", impl_settings_get_connection_by_uuid,
+	                               "ListConnections", impl_settings_list_connections,
+	                               "LoadConnections", impl_settings_load_connections,
+	                               "ReloadConnections", impl_settings_reload_connections,
+	                               "SaveHostname", impl_settings_save_hostname,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_SETTINGS_ERROR,
-	                              NM_DBUS_INTERFACE_SETTINGS,
-	                              NM_TYPE_SETTINGS_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTINGS_ERROR,
+	                                NM_DBUS_INTERFACE_SETTINGS,
+	                                NM_TYPE_SETTINGS_ERROR);
 
 	/* And register all the settings errors with D-Bus */
-	dbus_g_error_domain_register (NM_CONNECTION_ERROR, NULL, NM_TYPE_CONNECTION_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_802_1X_ERROR, NULL, NM_TYPE_SETTING_802_1X_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_BLUETOOTH_ERROR, NULL, NM_TYPE_SETTING_BLUETOOTH_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_CDMA_ERROR, NULL, NM_TYPE_SETTING_CDMA_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_CONNECTION_ERROR, NULL, NM_TYPE_SETTING_CONNECTION_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_GSM_ERROR, NULL, NM_TYPE_SETTING_GSM_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_IP4_CONFIG_ERROR, NULL, NM_TYPE_SETTING_IP4_CONFIG_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_IP6_CONFIG_ERROR, NULL, NM_TYPE_SETTING_IP6_CONFIG_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_OLPC_MESH_ERROR, NULL, NM_TYPE_SETTING_OLPC_MESH_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_PPP_ERROR, NULL, NM_TYPE_SETTING_PPP_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_PPPOE_ERROR, NULL, NM_TYPE_SETTING_PPPOE_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_SERIAL_ERROR, NULL, NM_TYPE_SETTING_SERIAL_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_ADSL_ERROR, NULL, NM_TYPE_SETTING_ADSL_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_VPN_ERROR, NULL, NM_TYPE_SETTING_VPN_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_WIRED_ERROR, NULL, NM_TYPE_SETTING_WIRED_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_WIRELESS_SECURITY_ERROR, NULL, NM_TYPE_SETTING_WIRELESS_SECURITY_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_WIRELESS_ERROR, NULL, NM_TYPE_SETTING_WIRELESS_ERROR);
-	dbus_g_error_domain_register (NM_SETTING_ERROR, NULL, NM_TYPE_SETTING_ERROR);
-
-	dbus_g_object_type_install_info (NM_TYPE_SETTINGS, &dbus_glib_nm_settings_object_info);
-
+	// FIXME
+	_nm_dbus_register_error_domain (NM_CONNECTION_ERROR, NULL, NM_TYPE_CONNECTION_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_802_1X_ERROR, NULL, NM_TYPE_SETTING_802_1X_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_BLUETOOTH_ERROR, NULL, NM_TYPE_SETTING_BLUETOOTH_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_CDMA_ERROR, NULL, NM_TYPE_SETTING_CDMA_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_CONNECTION_ERROR, NULL, NM_TYPE_SETTING_CONNECTION_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_GSM_ERROR, NULL, NM_TYPE_SETTING_GSM_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_IP4_CONFIG_ERROR, NULL, NM_TYPE_SETTING_IP4_CONFIG_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_IP6_CONFIG_ERROR, NULL, NM_TYPE_SETTING_IP6_CONFIG_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_OLPC_MESH_ERROR, NULL, NM_TYPE_SETTING_OLPC_MESH_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_PPP_ERROR, NULL, NM_TYPE_SETTING_PPP_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_PPPOE_ERROR, NULL, NM_TYPE_SETTING_PPPOE_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_SERIAL_ERROR, NULL, NM_TYPE_SETTING_SERIAL_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_ADSL_ERROR, NULL, NM_TYPE_SETTING_ADSL_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_VPN_ERROR, NULL, NM_TYPE_SETTING_VPN_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_WIRED_ERROR, NULL, NM_TYPE_SETTING_WIRED_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_WIRELESS_SECURITY_ERROR, NULL, NM_TYPE_SETTING_WIRELESS_SECURITY_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_WIRELESS_ERROR, NULL, NM_TYPE_SETTING_WIRELESS_ERROR);
+	_nm_dbus_register_error_domain (NM_SETTING_ERROR, NULL, NM_TYPE_SETTING_ERROR);
 }
 

@@ -17,7 +17,7 @@ AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\""NetworkManager-wifi"\" \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
-	$(DBUS_CFLAGS)
+	$(GLIB_CFLAGS)
 
 GLIB_GENERATED = nm-wifi-enum-types.h nm-wifi-enum-types.c
 GLIB_MKENUMS_H_FLAGS = --identifier-prefix NM
@@ -58,7 +58,6 @@ libnm_device_plugin_wifi_la_LDFLAGS = \
 	 -Wl,--version-script=$(SYMBOL_VIS_FILE)
 
 libnm_device_plugin_wifi_la_LIBADD = \
-	$(DBUS_LIBS) \
 	$(GUDEV_LIBS)
 
 CLEANFILES = $(BUILT_SOURCES)

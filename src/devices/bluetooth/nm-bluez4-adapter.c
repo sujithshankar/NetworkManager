@@ -26,7 +26,6 @@
 #include "nm-bluez4-adapter.h"
 #include "nm-bluez-device.h"
 #include "nm-bluez-common.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-logging.h"
 
 

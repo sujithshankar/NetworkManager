@@ -25,7 +25,6 @@
 #include <nm-utils.h>
 
 #include "nm-system-config-interface.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-example-connection.h"
 #include "common.h"
 

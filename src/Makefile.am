@@ -36,6 +36,7 @@ endif
 
 AM_CPPFLAGS =				\
 	-I$(top_srcdir)/include		\
+	-I$(top_srcdir)/introspection	\
 	-I$(top_srcdir)/libnm-core	\
 	-I$(top_builddir)/libnm-core	\
 	-I$(top_srcdir)/callouts	\
@@ -87,7 +88,7 @@ nm_device_headers = \
 	devices/nm-device-vlan.h \
 	devices/nm-device-vxlan.h
 
-nm_sources = \
+libNetworkManager_la_SOURCES = \
 	$(nm_device_headers) \
 	devices/nm-device.c \
 	devices/nm-device.h \
@@ -192,8 +193,6 @@ nm_sources = \
 	supplicant-manager/nm-supplicant-settings-verify.c \
 	supplicant-manager/nm-supplicant-settings-verify.h \
 	supplicant-manager/nm-supplicant-types.h \
-	supplicant-manager/nm-call-store.c \
-	supplicant-manager/nm-call-store.h \
 	\
 	vpn-manager/nm-vpn-connection.c \
 	vpn-manager/nm-vpn-connection.h \
@@ -236,6 +235,8 @@ nm_sources = \
 	nm-auth-subject.h \
 	nm-manager.c \
 	nm-manager.h \
+	nm-object.c \
+	nm-object.h \
 	nm-policy.c \
 	nm-policy.h \
 	nm-posix-signals.c \
@@ -253,24 +254,24 @@ nm_sources = \
 	NetworkManagerUtils.h
 
 if SESSION_TRACKING_SYSTEMD
-nm_sources += nm-session-monitor-systemd.c
+libNetworkManager_la_SOURCES += nm-session-monitor-systemd.c
 else
 if SESSION_TRACKING_CK
-nm_sources += nm-session-monitor-ck.c
+libNetworkManager_la_SOURCES += nm-session-monitor-ck.c
 else
-nm_sources += nm-session-monitor-null.c
+libNetworkManager_la_SOURCES += nm-session-monitor-null.c
 endif
 endif
 
 if SUSPEND_RESUME_SYSTEMD
-nm_sources += nm-sleep-monitor-systemd.c
+libNetworkManager_la_SOURCES += nm-sleep-monitor-systemd.c
 else
 # UPower suspend/resume used whenever systemd is not enabled
-nm_sources += nm-sleep-monitor-upower.c
+libNetworkManager_la_SOURCES += nm-sleep-monitor-upower.c
 endif
 
 if WITH_WEXT
-nm_sources += \
+libNetworkManager_la_SOURCES += \
 	platform/wifi/wifi-utils-wext.c \
 	platform/wifi/wifi-utils-wext.h
 endif
@@ -279,7 +280,7 @@ endif
 GLIB_GENERATED = nm-enum-types.h nm-enum-types.c
 GLIB_MKENUMS_H_FLAGS = --identifier-prefix NM
 GLIB_MKENUMS_C_FLAGS = --identifier-prefix NM
-nm_enum_types_sources = $(nm_sources)
+nm_enum_types_sources = $(libNetworkManager_la_SOURCES)
 
 if WITH_WIMAX
 nm_enum_types_sources += devices/wimax/nm-device-wimax.h
@@ -288,41 +289,7 @@ endif
 
 BUILT_SOURCES = $(GLIB_GENERATED)
 
-
-glue_sources = \
-	nm-access-point-glue.h \
-	nm-active-connection-glue.h \
-	nm-agent-manager-glue.h \
-	nm-device-bond-glue.h \
-	nm-device-bridge-glue.h \
-	nm-device-ethernet-glue.h \
-	nm-device-generic-glue.h \
-	nm-device-glue.h \
-	nm-device-gre-glue.h \
-	nm-device-infiniband-glue.h \
-	nm-device-macvlan-glue.h \
-	nm-device-tun-glue.h \
-	nm-device-veth-glue.h \
-	nm-device-vlan-glue.h \
-	nm-device-vxlan-glue.h \
-	nm-dhcp4-config-glue.h \
-	nm-dhcp6-config-glue.h \
-	nm-ip4-config-glue.h \
-	nm-ip6-config-glue.h \
-	nm-manager-glue.h \
-	nm-ppp-manager-glue.h \
-	nm-settings-connection-glue.h \
-	nm-settings-glue.h \
-	nm-vpn-connection-glue.h
-
-BUILT_SOURCES += $(glue_sources)
-
-%-glue.h: $(top_srcdir)/introspection/%.xml
-	$(AM_V_GEN) dbus-binding-tool --prefix=$(subst -,_,$(subst -glue.h,,$@)) --mode=glib-server --output=$@ $<
-
-
 AM_CPPFLAGS += \
-	$(DBUS_CFLAGS) \
 	$(GLIB_CFLAGS) \
 	$(GUDEV_CFLAGS) \
 	$(LIBNL_CFLAGS) \
@@ -355,13 +322,9 @@ if SESSION_TRACKING_CK
 AM_CPPFLAGS += -DCKDB_PATH=\"${CKDB_PATH}\"
 endif
 
-libNetworkManager_la_SOURCES = \
-	$(nm_sources) \
-	$(glue_sources)
-
 libNetworkManager_la_LIBADD = \
 	$(top_builddir)/libnm-core/libnm-core.la \
-	$(DBUS_LIBS) \
+	$(top_builddir)/introspection/libnmdbus.la \
 	$(GLIB_LIBS) \
 	$(GUDEV_LIBS) \
 	$(LIBNL_LIBS) \
@@ -392,8 +355,4 @@ install-data-hook:
 	$(mkinstalldirs) -m 0755 $(DESTDIR)$(pkglibdir)
 
 CLEANFILES = \
-	$(BUILT_SOURCES) \
-	settings/*-glue.h \
-	devices/*-glue.h \
-	devices/*/*-glue.h
-
+	$(BUILT_SOURCES)

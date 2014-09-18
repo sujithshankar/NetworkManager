@@ -21,7 +21,6 @@
 
 #include <glib.h>
 #include <glib/gi18n.h>
-#include <dbus/dbus.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -56,7 +55,6 @@
 #include "nm-manager-auth.h"
 #include "nm-settings-connection.h"
 #include "nm-enum-types.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-wifi-enum-types.h"
 #include "nm-connection-provider.h"
 
@@ -71,9 +69,9 @@ static gboolean impl_device_get_all_access_points (NMDeviceWifi *device,
 
 static void impl_device_request_scan (NMDeviceWifi *device,
                                       GHashTable *options,
-                                      DBusGMethodInvocation *context);
+                                      GDBusMethodInvocation *context);
 
-#include "nm-device-wifi-glue.h"
+#include "nmdbus-device-wifi.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceWifi);
@@ -1279,7 +1277,7 @@ impl_device_get_all_access_points (NMDeviceWifi *self,
 
 static void
 request_scan_cb (NMDevice *device,
-                 DBusGMethodInvocation *context,
+                 GDBusMethodInvocation *context,
                  GError *error,
                  gpointer user_data)
 {
@@ -1287,7 +1285,7 @@ request_scan_cb (NMDevice *device,
 	GError *local = NULL;
 
 	if (error) {
-		dbus_g_method_return_error (context, error);
+		g_dbus_method_invocation_return_gerror (context, error);
 		return;
 	}
 
@@ -1295,20 +1293,20 @@ request_scan_cb (NMDevice *device,
 		local = g_error_new_literal (NM_WIFI_ERROR,
 		                             NM_WIFI_ERROR_SCAN_NOT_ALLOWED,
 		                             "Scanning not allowed at this time");
-		dbus_g_method_return_error (context, local);
+		g_dbus_method_invocation_return_gerror (context, local);
 		g_error_free (local);
 		return;
 	}
 
 	cancel_pending_scan (self);
 	request_wireless_scan (self);
-	dbus_g_method_return (context);
+	g_dbus_method_invocation_return_value (context, NULL);
 }
 
 static void
 impl_device_request_scan (NMDeviceWifi *self,
                           GHashTable *options,
-                          DBusGMethodInvocation *context)
+                          GDBusMethodInvocation *context)
 {
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	NMDevice *device = NM_DEVICE (self);
@@ -1352,7 +1350,7 @@ impl_device_request_scan (NMDeviceWifi *self,
 	return;
 
 error:
-	dbus_g_method_return_error (context, error);
+	g_dbus_method_invocation_return_gerror (context, error);
 	g_error_free (error);
 }
 
@@ -1863,7 +1861,7 @@ schedule_scanlist_cull (NMDeviceWifi *self)
 static void
 supplicant_iface_new_bss_cb (NMSupplicantInterface *iface,
                              const char *object_path,
-                             GHashTable *properties,
+                             GVariant *properties,
                              NMDeviceWifi *self)
 {
 	NMDeviceState state;
@@ -1897,7 +1895,6 @@ supplicant_iface_new_bss_cb (NMSupplicantInterface *iface,
 static void
 supplicant_iface_bss_updated_cb (NMSupplicantInterface *iface,
                                  const char *object_path,
-                                 GHashTable *properties,
                                  NMDeviceWifi *self)
 {
 	NMDeviceState state;
@@ -1905,7 +1902,6 @@ supplicant_iface_bss_updated_cb (NMSupplicantInterface *iface,
 
 	g_return_if_fail (self != NULL);
 	g_return_if_fail (object_path != NULL);
-	g_return_if_fail (properties != NULL);
 
 	/* Ignore new APs when unavailable or unamnaged */
 	state = nm_device_get_state (NM_DEVICE (self));
@@ -3453,7 +3449,7 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 	                                        G_TYPE_FROM_CLASS (klass),
 	                                        &dbus_glib_nm_device_wifi_object_info);
 
-	dbus_g_error_domain_register (NM_WIFI_ERROR, NULL, NM_TYPE_WIFI_ERROR);
+	_nm_dbus_register_error_domain (NM_WIFI_ERROR, NULL, NM_TYPE_WIFI_ERROR);
 }
 
 

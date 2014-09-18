@@ -33,12 +33,11 @@
 #include "NetworkManagerUtils.h"
 #include "nm-device-private.h"
 #include "nm-platform.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-dbus-manager.h"
 #include "nm-enum-types.h"
 #include "nm-device-factory.h"
 
-#include "nm-device-bond-glue.h"
+#include "nmdbus-device-bond.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceBond);
@@ -475,7 +474,8 @@ get_property (GObject *object, guint prop_id,
 		for (iter = list; iter; iter = iter->next)
 			g_ptr_array_add (slaves, g_strdup (nm_device_get_path (NM_DEVICE (iter->data))));
 		g_slist_free (list);
-		g_value_take_boxed (value, slaves);
+		g_ptr_array_add (slaves, NULL);
+		g_value_take_boxed (value, (char **) g_ptr_array_free (slaves, FALSE));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -525,15 +525,15 @@ nm_device_bond_class_init (NMDeviceBondClass *klass)
 	g_object_class_install_property
 		(object_class, PROP_SLAVES,
 		 g_param_spec_boxed (NM_DEVICE_BOND_SLAVES, "", "",
-		                     DBUS_TYPE_G_ARRAY_OF_OBJECT_PATH,
+		                     G_TYPE_STRV,
 		                     G_PARAM_READABLE |
 		                     G_PARAM_STATIC_STRINGS));
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_bond_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_BOND,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_BOND_ERROR, NULL, NM_TYPE_BOND_ERROR);
+	_nm_dbus_register_error_domain (NM_BOND_ERROR, NM_DBUS_INTERFACE_DEVICE_BOND, NM_TYPE_BOND_ERROR);
 }
 
 /*************************************************************/

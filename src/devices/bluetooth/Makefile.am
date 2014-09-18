@@ -15,7 +15,7 @@ AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\""NetworkManager-bluetooth"\" \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
-	$(DBUS_CFLAGS)
+	$(GLIB_CFLAGS)
 
 GLIB_GENERATED = nm-bt-enum-types.h nm-bt-enum-types.c
 GLIB_MKENUMS_H_FLAGS = --identifier-prefix NM
@@ -55,7 +55,6 @@ libnm_device_plugin_bluetooth_la_LDFLAGS = \
 
 libnm_device_plugin_bluetooth_la_LIBADD = \
 	$(top_builddir)/src/devices/wwan/libnm-wwan.la \
-	$(DBUS_LIBS) \
 	$(GUDEV_LIBS)
 
 CLEANFILES = $(BUILT_SOURCES)

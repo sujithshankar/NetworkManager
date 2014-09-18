@@ -25,11 +25,11 @@
 #include <nm-ip6-config.h>
 
 NMIP4Config *nm_dhcp_utils_ip4_config_from_options (const char *iface,
-                                                    GHashTable *options,
+                                                    GVariant *options,
                                                     guint priority);
 
 NMIP6Config *nm_dhcp_utils_ip6_config_from_options (const char *iface,
-                                                    GHashTable *options,
+                                                    GVariant *options,
                                                     guint priority,
                                                     gboolean info_only);
 

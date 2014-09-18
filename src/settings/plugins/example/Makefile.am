@@ -8,7 +8,6 @@ AM_CPPFLAGS = \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
 	$(GLIB_CFLAGS) \
-	$(DBUS_CFLAGS) \
 	-DNMCONFDIR=\"$(nmconfdir)\"
 
 # 'noinst' here because this is an example plugin we don't want to install

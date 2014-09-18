@@ -59,9 +59,9 @@ void nm_supplicant_config_set_ap_scan (NMSupplicantConfig *self,
 
 gboolean nm_supplicant_config_fast_required (NMSupplicantConfig *self);
 
-GHashTable *nm_supplicant_config_get_hash (NMSupplicantConfig *self);
+GVariant *nm_supplicant_config_get_config (NMSupplicantConfig *self);
 
-GHashTable *nm_supplicant_config_get_blobs (NMSupplicantConfig *self);
+GVariant *nm_supplicant_config_get_blobs (NMSupplicantConfig *self);
 
 gboolean nm_supplicant_config_add_setting_wireless (NMSupplicantConfig *self,
                                                     NMSettingWireless *setting,

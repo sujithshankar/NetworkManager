@@ -21,9 +21,9 @@
 #ifndef __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 #define __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 
-#include <glib-object.h>
 #include "nm-types.h"
 #include "nm-connection.h"
+#include "nm-object.h"
 
 #define NM_TYPE_ACTIVE_CONNECTION            (nm_active_connection_get_type ())
 #define NM_ACTIVE_CONNECTION(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_ACTIVE_CONNECTION, NMActiveConnection))
@@ -57,11 +57,11 @@
 #define NM_ACTIVE_CONNECTION_INT_MASTER_READY   "int-master-ready"
 
 struct _NMActiveConnection {
-	GObject parent;
+	NMObject parent;
 };
 
 typedef struct {
-	GObjectClass parent;
+	NMObjectClass parent;
 
 	/* re-emits device state changes as a convenience for subclasses for
 	 * device states >= DISCONNECTED.

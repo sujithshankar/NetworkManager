@@ -13,7 +13,7 @@ AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\""NetworkManager-team"\" \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
-	$(DBUS_CFLAGS)
+	$(GLIB_CFLAGS)
 
 if WITH_TEAMDCTL
 AM_CPPFLAGS += ${LIBTEAMDCTL_CFLAGS}
@@ -49,7 +49,6 @@ libnm_device_plugin_team_la_LDFLAGS = \
 	-Wl,--version-script=$(SYMBOL_VIS_FILE)
 
 libnm_device_plugin_team_la_LIBADD = \
-	$(DBUS_LIBS) \
 	$(GUDEV_LIBS)
 
 if WITH_TEAMDCTL

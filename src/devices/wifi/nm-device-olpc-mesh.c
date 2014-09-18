@@ -27,7 +27,6 @@
 #include "config.h"
 #include <glib.h>
 #include <glib/gi18n.h>
-#include <dbus/dbus.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -57,7 +56,7 @@
 #include "nm-vpn-dbus-interface.h"
 
 
-#include "nm-device-olpc-mesh-glue.h"
+#include "nmdbus-device-olpc-mesh.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceOlpcMesh);
@@ -567,6 +566,6 @@ nm_device_olpc_mesh_class_init (NMDeviceOlpcMeshClass *klass)
 	                                        G_TYPE_FROM_CLASS (klass),
 	                                        &dbus_glib_nm_device_olpc_mesh_object_info);
 
-	dbus_g_error_domain_register (NM_OLPC_MESH_ERROR, NULL, NM_TYPE_OLPC_MESH_ERROR);
+	_nm_dbus_register_error_domain (NM_OLPC_MESH_ERROR, NULL, NM_TYPE_OLPC_MESH_ERROR);
 }
 

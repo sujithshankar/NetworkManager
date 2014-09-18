@@ -21,7 +21,6 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <dbus/dbus-glib.h>
 #include <gio/gio.h>
 #include "nm-logging.h"
 #include "nm-dbus-manager.h"

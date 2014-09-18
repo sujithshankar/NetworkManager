@@ -27,8 +27,6 @@
 #include "nm-platform.h"
 #include "nm-utils.h"
 #include "nm-dbus-manager.h"
-#include "nm-dbus-glib-types.h"
-#include "nm-ip6-config-glue.h"
 #include "NetworkManagerUtils.h"
 
 G_DEFINE_TYPE (NMIP6Config, nm_ip6_config, G_TYPE_OBJECT)

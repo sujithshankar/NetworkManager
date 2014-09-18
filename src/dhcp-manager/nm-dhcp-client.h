@@ -94,7 +94,7 @@ typedef struct {
 	void (*state_changed) (NMDhcpClient *self,
 	                       NMDhcpState state,
 	                       GObject *ip_config,
-	                       GHashTable *options);
+	                       GVariant *options);
 } NMDhcpClientClass;
 
 GType nm_dhcp_client_get_type (void);
@@ -129,7 +129,7 @@ gboolean nm_dhcp_client_start_ip6 (NMDhcpClient *self,
 void nm_dhcp_client_stop (NMDhcpClient *self, gboolean release);
 
 void nm_dhcp_client_new_options (NMDhcpClient *self,
-                                 GHashTable *options,
+                                 GVariant *options,
                                  const char *reason);
 
 /* Backend helpers for subclasses */
@@ -142,7 +142,7 @@ void nm_dhcp_client_watch_child (NMDhcpClient *self, pid_t pid);
 void nm_dhcp_client_set_state (NMDhcpClient *self,
                                NMDhcpState new_state,
                                GObject *ip_config,   /* NMIP4Config or NMIP6Config */
-                               GHashTable *options); /* str:str hash */
+                               GVariant *options); /* str:str hash */
 
 #endif /* __NETWORKMANAGER_DHCP_CLIENT_H__ */
 

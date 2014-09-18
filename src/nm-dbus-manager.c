@@ -27,12 +27,10 @@
 
 #include "nm-dbus-interface.h"
 #include "nm-dbus-manager.h"
+#include "nm-dbus-utils.h"
 #include "nm-glib-compat.h"
 #include "nm-properties-changed-signal.h"
 
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib.h>
-#include <dbus/dbus-glib-lowlevel.h>
 #include <string.h>
 #include "nm-logging.h"
 
@@ -58,15 +56,14 @@ G_DEFINE_TYPE(NMDBusManager, nm_dbus_manager, G_TYPE_OBJECT)
 typedef struct _PrivateServer PrivateServer;
 
 typedef struct {
-	DBusConnection *connection;
-	DBusGConnection *g_connection;
+	GDBusConnection *connection;
 	GHashTable *exported;
 	gboolean started;
 
 	GSList *private_servers;
 	PrivateServer *priv_server;
 
-	DBusGProxy *proxy;
+	GDBusProxy *proxy;
 	guint proxy_destroy_id;
 
 	guint reconnect_id;
@@ -99,20 +96,24 @@ struct _PrivateServer {
 	char *tag;
 	GQuark detail;
 	char *address;
-	DBusServer *server;
+	GDBusServer *server;
 	GHashTable *connections;
 	NMDBusManager *manager;
 };
 
-static DBusHandlerResult
-private_server_message_filter (DBusConnection *conn,
-                               DBusMessage *message,
-                               void *data)
+static GDBusMessage *
+private_server_message_filter (GDBusConnection *conn,
+                               GDBusMessage *message,
+                               gboolean incoming,
+                               gpointer data)
 {
 	PrivateServer *s = data;
 
-	/* Clean up after the connection */
-	if (dbus_message_is_signal (message, DBUS_INTERFACE_LOCAL, "Disconnected")) {
+	if (   incoming
+	    && (g_dbus_message_get_message_type (message) == G_DBUS_MESSAGE_TYPE_SIGNAL)
+	    && !strcmp (g_dbus_message_get_interface (message), DBUS_INTERFACE_LOCAL)
+	    && !strcmp (g_dbus_message_get_member (message), "Disconnected")) {
+		/* Clean up after the connection */
 		nm_log_dbg (LOGD_CORE, "(%s) closed connection %p on private socket.",
 		            s->tag, conn);
 
@@ -120,38 +121,24 @@ private_server_message_filter (DBusConnection *conn,
 		g_signal_emit (s->manager,
 		               signals[PRIVATE_CONNECTION_DISCONNECTED],
 		               s->detail,
-		               dbus_connection_get_g_connection (conn));
+		               conn);
 
 		g_hash_table_remove (s->connections, conn);
-
-		/* Let dbus-glib process the message too */
-		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
-	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	return message;
 }
 
-static dbus_bool_t
-allow_only_root (DBusConnection *connection, unsigned long uid, void *data)
-{
-	return uid == 0;
-}
-
-static void
-private_server_new_connection (DBusServer *server,
-                               DBusConnection *conn,
+static gboolean
+private_server_new_connection (GDBusServer *server,
+                               GDBusConnection *conn,
                                gpointer user_data)
 {
 	PrivateServer *s = user_data;
 	static guint32 counter = 0;
 	char *sender;
 
-	if (!dbus_connection_add_filter (conn, private_server_message_filter, s, NULL)) {
-		dbus_connection_close (conn);
-		return;
-	}
-	dbus_connection_set_unix_user_function (conn, allow_only_root, NULL, NULL);
-	dbus_connection_setup_with_g_main (conn, NULL);
+	g_dbus_connection_add_filter (conn, private_server_message_filter, s, NULL);
 
 	/* Fake a sender since private connections don't have one */
 	sender = g_strdup_printf ("x:y:%d", counter++);
@@ -163,7 +150,7 @@ private_server_new_connection (DBusServer *server,
 	g_signal_emit (s->manager,
 	               signals[PRIVATE_CONNECTION_NEW],
 	               s->detail,
-	               dbus_connection_get_g_connection (conn));
+	               conn);
 }
 
 static void
@@ -174,35 +161,55 @@ private_server_dbus_connection_destroy (DBusConnection *conn)
 	dbus_connection_unref (conn);
 }
 
+static gboolean
+private_server_authorize (GDBusAuthObserver *observer,
+                          GIOStream         *stream,
+                          GCredentials      *credentials,
+                          gpointer           user_data)
+{
+	return g_credentials_get_unix_uid (credentials) == 0;
+}
+
 static PrivateServer *
 private_server_new (const char *path,
                     const char *tag,
                     NMDBusManager *manager)
 {
 	PrivateServer *s;
-	DBusServer *server;
-	DBusError error;
-	char *address;
+	GDBusAuthObserver *auth_observer;
+	GDBusServer *server;
+	GError *error = NULL;
+	char *address, *guid;
 
 	unlink (path);
 	address = g_strdup_printf ("unix:path=%s", path);
 
 	nm_log_dbg (LOGD_CORE, "(%s) creating private socket %s.", tag, address);
 
-	dbus_error_init (&error);
-	server = dbus_server_listen (address, &error);
+	guid = g_dbus_generate_guid ();
+	auth_observer = g_dbus_auth_observer_new ();
+	g_signal_connection (auth_observer, "authorize-authenticated-peer",
+	                     private_server_authorize, NULL);
+	server = g_dbus_server_new_sync (address,
+	                                 G_DBUS_SERVER_FLAGS_NONE,
+	                                 guid,
+	                                 auth_observer,
+	                                 NULL, &error);
+	g_free (guid);
+	g_object_unref (auth_observer);
+
 	if (!server) {
 		nm_log_warn (LOGD_CORE, "(%s) failed to set up private socket %s: %s",
-		             tag, address, error.message);
-		dbus_error_free (&error);
+		             tag, address, error->message);
+		g_error_free (error);
 		return NULL;
 	}
 
 	s = g_malloc0 (sizeof (*s));
 	s->address = address;
 	s->server = server;
-	dbus_server_setup_with_g_main (s->server, NULL);
-	dbus_server_set_new_connection_function (s->server, private_server_new_connection, s, NULL);
+	g_signal_connect (server, "new-connection",
+	                  G_CALLBACK (private_server_new_connection), s);
 
 	s->connections = g_hash_table_new_full (g_direct_hash, g_direct_equal,
 	                                        (GDestroyNotify) private_server_dbus_connection_destroy,
@@ -210,6 +217,8 @@ private_server_new (const char *path,
 	s->manager = manager;
 	s->tag = g_strdup (tag);
 	s->detail = g_quark_from_string (s->tag);
+
+	g_dbus_server_start (server);
 
 	return s;
 }
@@ -223,7 +232,10 @@ private_server_free (gpointer ptr)
 	g_free (s->address);
 	g_free (s->tag);
 	g_hash_table_destroy (s->connections);
-	dbus_server_unref (s->server);
+
+	g_dbus_server-stop (s->server);
+	g_object_unref (s->server);
+
 	memset (s, 0, sizeof (*s));
 	g_free (s);
 }
@@ -236,10 +248,6 @@ nm_dbus_manager_private_server_register (NMDBusManager *self,
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
 	PrivateServer *s;
 	GSList *iter;
-
-#if !HAVE_DBUS_GLIB_100
-	g_assert_not_reached ();
-#endif
 
 	g_return_if_fail (self != NULL);
 	g_return_if_fail (path != NULL);
@@ -258,12 +266,12 @@ nm_dbus_manager_private_server_register (NMDBusManager *self,
 }
 
 static const char *
-private_server_get_connection_owner (PrivateServer *s, DBusGConnection *connection)
+private_server_get_connection_owner (PrivateServer *s, GDBusConnection *connection)
 {
 	g_return_val_if_fail (s != NULL, NULL);
 	g_return_val_if_fail (connection != NULL, NULL);
 
-	return g_hash_table_lookup (s->connections, dbus_g_connection_get_connection (connection));
+	return g_hash_table_lookup (s->connections, connection)
 }
 
 /**************************************************************/
@@ -275,52 +283,75 @@ _bus_get_unix_pid (NMDBusManager *self,
                    GError **error)
 {
 	guint32 unix_pid = G_MAXUINT32;
+	GVariant *ret;
 
-	if (!dbus_g_proxy_call_with_timeout (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
-	                                     "GetConnectionUnixProcessID", 2000, error,
-	                                     G_TYPE_STRING, sender,
-	                                     G_TYPE_INVALID,
-	                                     G_TYPE_UINT, &unix_pid,
-	                                     G_TYPE_INVALID)) {
+	ret = g_dbus_proxy_call_sync (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
+	                              "GetConnectionUnixProcessID",
+	                              g_variant_new ("(s)", sender),
+	                              G_DBUS_CALL_FLAGS_NONE, 2000,
+	                              NULL, error);
+	if (!ret)
 		return FALSE;
-	}
+
+	g_return_val_if_fail (g_variant_is_of_type (ret, G_VARIANT_TYPE ("(u)")), FALSE);
+	g_variant_get (ret, "(u)", &unix_pid);
 
 	*out_pid = (gulong) unix_pid;
+	return TRUE;
+}
+
+static gboolean
+_bus_get_unix_user (NMDBusManager *self,
+                    const char *sender,
+                    gulong *out_user,
+                    GError **error)
+{
+	guint32 unix_uid = G_MAXUINT32;
+	GVariant *ret;
+
+	ret = g_dbus_proxy_call_sync (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
+	                              "GetConnectionUnixUser",
+	                              g_variant_new ("(s)", sender),
+	                              G_DBUS_CALL_FLAGS_NONE, 2000,
+	                              NULL, error);
+	if (!ret)
+		return FALSE;
+
+	g_return_val_if_fail (g_variant_is_of_type (ret, G_VARIANT_TYPE ("(u)")), FALSE);
+	g_variant_get (ret, "(u)", &unix_uid);
+
+	*out_user = (gulong) unix_uid;
 	return TRUE;
 }
 
 /**
  * _get_caller_info_from_context():
  *
- * Given a dbus-glib method invocation, or a DBusConnection + DBusMessage,
+ * Given a GDBus method invocation, or a GDBusConnection + GDBusMessage,
  * return the sender and the UID of the sender.
  */
 static gboolean
 _get_caller_info (NMDBusManager *self,
-                  DBusGMethodInvocation *context,
-                  DBusConnection *connection,
-                  DBusMessage *message,
+                  GDBusMethodInvocation *context,
+                  GDBusConnection *connection,
+                  GDBusMessage *message,
                   char **out_sender,
                   gulong *out_uid,
                   gulong *out_pid)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
-	DBusGConnection *gconn;
-	char *sender;
-	const char *priv_sender;
+	const char *sender;
 	DBusError error;
 	GSList *iter;
 
 	if (context) {
-		gconn = dbus_g_method_invocation_get_g_connection (context);
-		g_assert (gconn);
-		connection = dbus_g_connection_get_connection (gconn);
+		connection = g_dbus_method_invocation_get_connection (context);
 
 		/* only bus connections will have a sender */
-		sender = dbus_g_method_get_sender (context);
+		sender = g_dbus_method_invocation_get_sender (context);
 	} else {
 		g_assert (message);
-		sender = g_strdup (dbus_message_get_sender (message));
+		sender = g_dbus_message_get_sender (message);
 	}
 	g_assert (connection);
 
@@ -329,14 +360,19 @@ _get_caller_info (NMDBusManager *self,
 		for (iter = priv->private_servers; iter; iter = g_slist_next (iter)) {
 			PrivateServer *s = iter->data;
 
-			priv_sender = g_hash_table_lookup (s->connections, connection);
-			if (priv_sender) {
+			sender = g_hash_table_lookup (s->connections, connection);
+			if (sender) {
 				if (out_uid)
 					*out_uid = 0;
 				if (out_sender)
-					*out_sender = g_strdup (priv_sender);
+					*out_sender = g_strdup (sender);
 				if (out_pid) {
-					if (!dbus_connection_get_unix_process_id (connection, out_pid))
+					GCredentials *creds;
+
+					creds = g_dbus_connection_get_credentials (connection);
+					if (creds)
+						*out_pid = g_credentials_get_unix_pid (creds);
+					else
 						*out_pid = G_MAXULONG;
 				}
 				return TRUE;
@@ -348,11 +384,8 @@ _get_caller_info (NMDBusManager *self,
 	/* Bus connections always have a sender */
 	g_assert (sender);
 	if (out_uid) {
-		dbus_error_init (&error);
-		*out_uid = dbus_bus_get_unix_user (connection, sender, &error);
-		if (dbus_error_is_set (&error)) {
-			dbus_error_free (&error);
-			*out_uid = G_MAXULONG;
+		if (!_bus_get_unix_user (self, sender, out_user, NULL)) {
+			*out_user = G_MAXULONG;
 			g_free (sender);
 			return FALSE;
 		}
@@ -375,7 +408,7 @@ _get_caller_info (NMDBusManager *self,
 
 gboolean
 nm_dbus_manager_get_caller_info (NMDBusManager *self,
-                                 DBusGMethodInvocation *context,
+                                 GDBusMethodInvocation *context,
                                  char **out_sender,
                                  gulong *out_uid,
                                  gulong *out_pid)
@@ -385,8 +418,8 @@ nm_dbus_manager_get_caller_info (NMDBusManager *self,
 
 gboolean
 nm_dbus_manager_get_caller_info_from_message (NMDBusManager *self,
-                                              DBusConnection *connection,
-                                              DBusMessage *message,
+                                              GDBusConnection *connection,
+                                              GDBusMessage *message,
                                               char **out_sender,
                                               gulong *out_uid,
                                               gulong *out_pid)
@@ -401,7 +434,7 @@ nm_dbus_manager_get_unix_user (NMDBusManager *self,
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
 	GSList *iter;
-	DBusError error;
+	GError *error = NULL;
 
 	g_return_val_if_fail (sender != NULL, FALSE);
 	g_return_val_if_fail (out_uid != NULL, FALSE);
@@ -423,10 +456,10 @@ nm_dbus_manager_get_unix_user (NMDBusManager *self,
 
 	/* Otherwise, a bus connection */
 	dbus_error_init (&error);
-	*out_uid = dbus_bus_get_unix_user (priv->connection, sender, &error);
-	if (dbus_error_is_set (&error)) {
+	if (!_bus_get_unix_user (self, sender, out_uid, &error)) {
 		nm_log_warn (LOGD_CORE, "Failed to get unix user for dbus sender '%s': %s",
-		             sender, error.message);
+		             sender, error->message);
+		g_error_free (error);
 		return FALSE;
 	}
 
@@ -435,21 +468,27 @@ nm_dbus_manager_get_unix_user (NMDBusManager *self,
 
 /**************************************************************/
 
-#if HAVE_DBUS_GLIB_100
 static void
-private_connection_new (NMDBusManager *self, DBusGConnection *connection)
+private_connection_new (NMDBusManager *self, GDBusConnection *connection)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
 	GHashTableIter iter;
-	GObject *object;
+	GDBusInterfaceSkeleton *interface;
 	const char *path;
+	GError *error = NULL;
 
 	/* Register all exported objects on this private connection */
 	g_hash_table_iter_init (&iter, priv->exported);
-	while (g_hash_table_iter_next (&iter, (gpointer) &object, (gpointer) &path)) {
-		dbus_g_connection_register_g_object (connection, path, object);
-		nm_log_dbg (LOGD_CORE, "(%s) registered %p (%s) at '%s' on private socket.",
-		            PRIV_SOCK_TAG, object, G_OBJECT_TYPE_NAME (object), path);
+	while (g_hash_table_iter_next (&iter, (gpointer) &interface, (gpointer) &path)) {
+		if (g_dbus_interface_skeleton_export (interface, connection, path, &error)) {
+			nm_log_dbg (LOGD_CORE, "(%s) registered %p (%s) at '%s' on private socket.",
+			            PRIV_SOCK_TAG, object, G_OBJECT_TYPE_NAME (object), path);
+		} else {
+			nm_log_warn (LOGD_CORE, "(%s) could not register %p (%s) at '%s' on private socket: %s.",
+			             PRIV_SOCK_TAG, object, G_OBJECT_TYPE_NAME (object), path,
+			             error->message);
+			g_clear_error (&error);
+		}
 	}
 }
 
@@ -495,7 +534,6 @@ private_server_setup (NMDBusManager *self)
 		                  NULL);
 	}
 }
-#endif  /* HAVE_DBUS_GLIB_100 */
 
 static void
 nm_dbus_manager_init (NMDBusManager *self)
@@ -504,9 +542,7 @@ nm_dbus_manager_init (NMDBusManager *self)
 
 	priv->exported = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
 
-#if HAVE_DBUS_GLIB_100
 	private_server_setup (self);
-#endif
 }
 
 static void
@@ -598,11 +634,7 @@ nm_dbus_manager_cleanup (NMDBusManager *self, gboolean dispose)
 		priv->proxy = NULL;
 	}
 
-	if (priv->g_connection) {
-		dbus_g_connection_unref (priv->g_connection);
-		priv->g_connection = NULL;
-		priv->connection = NULL;
-	}
+	g_clear_pointer (&priv->connection);
 
 	priv->started = FALSE;
 }
@@ -647,6 +679,7 @@ nm_dbus_manager_get_name_owner (NMDBusManager *self,
                                 const char *name,
                                 GError **error)
 {
+	GVariant *ret;
 	char *owner = NULL;
 
 	g_return_val_if_fail (NM_IS_DBUS_MANAGER (self), NULL);
@@ -657,14 +690,17 @@ nm_dbus_manager_get_name_owner (NMDBusManager *self,
 	if (!NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy)
 		return NULL;
 
-	if (!dbus_g_proxy_call_with_timeout (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
-	                                     "GetNameOwner", 2000, error,
-	                                     G_TYPE_STRING, name,
-	                                     G_TYPE_INVALID,
-	                                     G_TYPE_STRING, &owner,
-	                                     G_TYPE_INVALID)) {
+	ret = g_dbus_proxy_call_sync (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
+	                              "GetNameOwner",
+	                              g_variant_new ("(s)", name),
+	                              G_DBUS_CALL_FLAGS_NONE, 2000,
+	                              NULL, error);
+	if (!ret)
 		return NULL;
-	}
+
+	g_return_val_if_fail (g_variant_is_of_type (ret, G_VARIANT_TYPE ("(s)")));
+	g_variant_get (ret, "(s)", &owner);
+	g_variant_unref (ret);
 
 	return owner;
 }
@@ -679,15 +715,14 @@ nm_dbus_manager_name_has_owner (NMDBusManager *self,
 	g_return_val_if_fail (NM_IS_DBUS_MANAGER (self), FALSE);
 	g_return_val_if_fail (name != NULL, FALSE);
 
-	if (!NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy)
+	if (!NM_DBUS_MANAGER_GET_PRIVATE (self)->connection)
 		return FALSE;
 
-	if (!dbus_g_proxy_call (NM_DBUS_MANAGER_GET_PRIVATE (self)->proxy,
-					    "NameHasOwner", &err,
-					    G_TYPE_STRING, name,
-					    G_TYPE_INVALID,
-					    G_TYPE_BOOLEAN, &has_owner,
-					    G_TYPE_INVALID)) {
+	if (!_nm_dbus_check_has_name_owner_sync (NM_DBUS_MANAGER_GET_PRIVATE (self)->connection,
+	                                         name,
+	                                         &has_owner,
+	                                         NULL,
+	                                         &err)) {
 		nm_log_warn (LOGD_CORE, "NameHasOwner request failed: %s",
 		             (err && err->message) ? err->message : "(unknown)");
 		g_clear_error (&err);
@@ -697,16 +732,24 @@ nm_dbus_manager_name_has_owner (NMDBusManager *self,
 }
 
 static void
-proxy_name_owner_changed (DBusGProxy *proxy,
-					 const char *name,
-					 const char *old_owner,
-					 const char *new_owner,
-					 gpointer user_data)
+proxy_dbus_signal (GDBusProxy  *proxy,
+                   const gchar *sender_name,
+                   const gchar *signal_name,
+                   GVariant    *parameters,
+                   gpointer     user_data)
 {
+	const char *name, *old_owner, *new_owner;
+
+	if (   strcmp (signal_name, "NameOwnerChanged") != 0
+	    || !g_variant_is_of_type (parameters, "(sss)"))
+		return;
+
+	g_variant_get (parameters, "(&s&s&s)", &name, &old_owner, &new_owner);
 	g_signal_emit (G_OBJECT (user_data), signals[NAME_OWNER_CHANGED],
 	               0, name, old_owner, new_owner);
 }
 
+#if FIXME
 static void
 destroy_cb (DBusGProxy *proxy, gpointer user_data)
 {
@@ -722,48 +765,56 @@ destroy_cb (DBusGProxy *proxy, gpointer user_data)
 
 	start_reconnection_timeout (self);
 }
+#endif
 
 static gboolean
 nm_dbus_manager_init_bus (NMDBusManager *self)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
+	GError *error = NULL;
 
 	if (priv->connection) {
 		nm_log_warn (LOGD_CORE, "DBus Manager already has a valid connection.");
 		return FALSE;
 	}
 
-	dbus_connection_set_change_sigpipe (TRUE);
-
-	priv->g_connection = dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL);
+	priv->connection = g_bus_get_sync (G_BUS_TYPE_SYSTEM, NULL, &error);
 	if (!priv->g_connection) {
 		/* Log with 'info' severity; there won't be a bus daemon in minimal
 		 * environments (eg, initrd) where we only want to use the private
 		 * socket.
 		 */
-		nm_log_info (LOGD_CORE, "Could not connect to the system bus; only the "
-		             "private D-Bus socket will be available.");
+		nm_log_info (LOGD_CORE, "Could not connect to the system bus (%s); only the "
+		             "private D-Bus socket will be available.",
+		             error->message);
+		g_error_free (error);
 		return FALSE;
 	}
 
-	priv->connection = dbus_g_connection_get_connection (priv->g_connection);
-	dbus_connection_set_exit_on_disconnect (priv->connection, FALSE);
+	priv->proxy = g_dbus_proxy_new_sync (priv->connection,
+	                                     G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+	                                         G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+	                                     NULL,
+	                                     "org.freedesktop.DBus",
+	                                     "/org/freedesktop/DBus",
+	                                     "org.freedesktop.DBus",
+	                                     NULL, &error);
+	if (!priv->proxy) {
+		g_clear_object (&priv->connection);
+		nm_log_warn (LOGD_CORE, "Could not create org.freedesktop.DBus proxy (%s); only the "
+		             "private D-Bus socket will be available.",
+		             error->message);
+		g_error_free (error);
+		return FALSE;
+	}
 
-	priv->proxy = dbus_g_proxy_new_for_name (priv->g_connection,
-	                                         "org.freedesktop.DBus",
-	                                         "/org/freedesktop/DBus",
-	                                         "org.freedesktop.DBus");
-
+#if FIXME
 	priv->proxy_destroy_id = g_signal_connect (priv->proxy, "destroy",
 	                                           G_CALLBACK (destroy_cb), self);
+#endif
 
-	dbus_g_proxy_add_signal (priv->proxy, "NameOwnerChanged",
-	                         G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
-	                         G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy,
-	                             "NameOwnerChanged",
-	                             G_CALLBACK (proxy_name_owner_changed),
-	                             self, NULL);
+	g_signal_connect (priv->proxy, "g-signal",
+	                  G_CALLBACK (proxy_dbus_signal), self);
 	return TRUE;
 }
 
@@ -775,6 +826,7 @@ gboolean
 nm_dbus_manager_start_service (NMDBusManager *self)
 {
 	NMDBusManagerPrivate *priv;
+	GVariant *ret;
 	int result;
 	GError *err = NULL;
 
@@ -791,20 +843,24 @@ nm_dbus_manager_start_service (NMDBusManager *self)
 	if (!priv->proxy)
 		return FALSE;
 
-	if (!dbus_g_proxy_call (priv->proxy, "RequestName", &err,
-	                        G_TYPE_STRING, NM_DBUS_SERVICE,
-	                        G_TYPE_UINT, DBUS_NAME_FLAG_DO_NOT_QUEUE,
-	                        G_TYPE_INVALID,
-	                        G_TYPE_UINT, &result,
-	                        G_TYPE_INVALID)) {
+	ret = g_dbus_proxy_call_sync (priv->proxy,
+	                              "RequestName",
+	                              g_variant_new ("(su)",
+	                                             NM_DBUS_SERVICE,
+	                                             0x4 /* DBUS_NAME_FLAG_DO_NOT_QUEUE */),
+	                              G_DBUS_CALL_FLAGS_NONE, -1,
+	                              NULL, &err);
+	if (!ret) {
 		nm_log_err (LOGD_CORE, "Could not acquire the NetworkManager service.\n"
-		            "  Error: '%s'",
-		            (err && err->message) ? err->message : "(unknown)");
+		            "  Error: '%s'", err->message);
 		g_error_free (err);
 		return FALSE;
 	}
 
-	if (result != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
+	g_return_val_if_fail (g_variant_is_of_type (ret, "(u)"), FALSE);
+	g_variant_get (ret, "(u)", &result);
+
+	if (result != 1 /* DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER */) {
 		nm_log_err (LOGD_CORE, "Could not acquire the NetworkManager service as it is already taken.");
 		return FALSE;
 	}
@@ -813,20 +869,12 @@ nm_dbus_manager_start_service (NMDBusManager *self)
 	return priv->started;
 }
 
-DBusConnection *
-nm_dbus_manager_get_dbus_connection (NMDBusManager *self)
-{
-	g_return_val_if_fail (NM_IS_DBUS_MANAGER (self), NULL);
-
-	return NM_DBUS_MANAGER_GET_PRIVATE (self)->connection;
-}
-
-DBusGConnection *
+GDBusConnection *
 nm_dbus_manager_get_connection (NMDBusManager *self)
 {
 	g_return_val_if_fail (NM_IS_DBUS_MANAGER (self), NULL);
 
-	return NM_DBUS_MANAGER_GET_PRIVATE (self)->g_connection;
+	return NM_DBUS_MANAGER_GET_PRIVATE (self)->connection;
 }
 
 static void
@@ -836,55 +884,29 @@ object_destroyed (NMDBusManager *self, gpointer object)
 }
 
 void
-nm_dbus_manager_register_exported_type (NMDBusManager         *self,
-                                        GType                  object_type,
-                                        const DBusGObjectInfo *info)
-{
-	const char *properties_info, *dbus_name, *gobject_name, *tmp_access;
-
-	dbus_g_object_type_install_info (object_type, info);
-	if (!info->exported_properties)
-		return;
-
-	properties_info = info->exported_properties;
-	while (*properties_info) {
-		/* The format is: "interface\0DBusPropertyName\0gobject_property_name\0access\0" */
-		dbus_name = strchr (properties_info, '\0') + 1;
-		gobject_name = strchr (dbus_name, '\0') + 1;
-		tmp_access = strchr (gobject_name, '\0') + 1;
-		properties_info = strchr (tmp_access, '\0') + 1;
-
-		/* Note that nm-properties-changed-signal takes advantage of the
-		 * fact that @dbus_name and @gobject_name are static data that won't
-		 * ever be freed.
-		 */
-		nm_properties_changed_signal_add_property (object_type, dbus_name, gobject_name);
-	}
-}
-
-void
 nm_dbus_manager_register_object (NMDBusManager *self,
                                  const char *path,
-                                 gpointer object)
+                                 gpointer interface)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
 	GHashTableIter iter;
-	DBusConnection *connection;
+	GDBusConnection *connection;
 
-	g_assert (G_IS_OBJECT (object));
+	g_assert (G_IS_DBUS_INTERFACE_SKELETON (object));
 
 	g_warn_if_fail (g_hash_table_lookup (priv->exported, object) == NULL);
-	g_hash_table_insert (priv->exported, G_OBJECT (object), g_strdup (path));
+	g_hash_table_insert (priv->exported, object, g_strdup (path));
 
-	if (priv->g_connection)
-		dbus_g_connection_register_g_object (priv->g_connection, path, G_OBJECT (object));
+	if (priv->connection) {
+		g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (object),
+		                                  priv->connection, path, NULL);
+	}
 
 	if (priv->priv_server) {
 		g_hash_table_iter_init (&iter, priv->priv_server->connections);
 		while (g_hash_table_iter_next (&iter, (gpointer) &connection, NULL)) {
-			dbus_g_connection_register_g_object (dbus_connection_get_g_connection (connection),
-			                                     path,
-			                                     G_OBJECT (object));
+			g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (object),
+			                                  connection, path, NULL);
 		}
 	}
 
@@ -895,24 +917,13 @@ void
 nm_dbus_manager_unregister_object (NMDBusManager *self, gpointer object)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
-	GHashTableIter iter;
-	DBusConnection *connection;
 
-	g_assert (G_IS_OBJECT (object));
+	g_assert (G_IS_DBUS_INTERFACE_SKELETON (object));
 
-	g_hash_table_remove (NM_DBUS_MANAGER_GET_PRIVATE (self)->exported, G_OBJECT (object));
+	g_hash_table_remove (NM_DBUS_MANAGER_GET_PRIVATE (self)->exported, object);
 	g_object_weak_unref (G_OBJECT (object), (GWeakNotify) object_destroyed, self);
 
-	if (priv->g_connection)
-		dbus_g_connection_unregister_g_object (priv->g_connection, G_OBJECT (object));
-
-	if (priv->priv_server) {
-		g_hash_table_iter_init (&iter, priv->priv_server->connections);
-		while (g_hash_table_iter_next (&iter, (gpointer) &connection, NULL)) {
-			dbus_g_connection_unregister_g_object (dbus_connection_get_g_connection (connection),
-			                                       G_OBJECT (object));
-		}
-	}
+	g_dbus_interface_skeleton_unexport (G_DBUS_INTERFACE_SKELETON (object));
 }
 
 /**
@@ -925,52 +936,49 @@ nm_dbus_manager_unregister_object (NMDBusManager *self, gpointer object)
  *
  * Creates a new proxy for a name on a given bus.  Since the process which
  * called the D-Bus method could be coming from a private connection or the
- * system bus connection, differnet proxies must be created for each case.  This
+ * system bus connection, different proxies must be created for each case.  This
  * function abstracts that.
  *
- * Returns: a #DBusGProxy capable of calling D-Bus methods of the calling process
+ * Returns: a #GDBusProxy capable of calling D-Bus methods of the calling process
  */
-DBusGProxy *
+GDBusProxy *
 nm_dbus_manager_new_proxy (NMDBusManager *self,
-                           DBusGMethodInvocation *context,
+                           GDBusMethodInvocation *context,
                            const char *name,
                            const char *path,
                            const char *iface)
 {
 	NMDBusManagerPrivate *priv = NM_DBUS_MANAGER_GET_PRIVATE (self);
-	DBusGConnection *connection;
+	GDBusConnection *connection;
 	GSList *iter;
 	const char *owner;
+	GDBusProxy *proxy;
 
-	connection = dbus_g_method_invocation_get_g_connection (context);
+	connection = g_dbus_method_invocation_get_connection (context);
 	g_assert (connection);
 
-	/* Might be a private connection, for which we fake a sender */
+	/* Might be a private connection, for which @name is fake */
 	for (iter = priv->private_servers; iter; iter = g_slist_next (iter)) {
 		PrivateServer *s = iter->data;
 
 		owner = private_server_get_connection_owner (s, connection);
 		if (owner) {
 			g_assert_cmpstr (owner, ==, name);
-			return dbus_g_proxy_new_for_peer (connection, path, iface);
+			name = NULL;
+			break;
 		}
 	}
 
-	return dbus_g_proxy_new_for_name (connection, name, path, iface);
+	proxy = g_dbus_proxy_new_sync (connection,
+	                               G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+	                                   G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+	                               NULL,
+	                               name, path, interface,
+	                               NULL, &error);
+	if (!proxy) {
+		nm_log_warn (LOGD_CORE, "Could not create proxy for %s on connection %s: %s",
+		             interface, name, error->message);
+		g_error_free (error);
+	}
+	return proxy;
 }
-
-#if !HAVE_DBUS_GLIB_GMI_GET_CONNECTION
-struct _HACKDBusGMethodInvocation {
-  DBusGConnection *connection;
-  /* ... */
-};
-
-DBusGConnection *
-dbus_g_method_invocation_get_g_connection (DBusGMethodInvocation *context)
-{
-	/* Evil hack; this method exists in dbus-glib >= 101, but if we don't
-	 * have that, emulate it.
-	 */
-	return ((struct _HACKDBusGMethodInvocation *) context)->connection;
-}
-#endif  /* HAVE_DBUS_GLIB_GMI_GET_CONNECTION */

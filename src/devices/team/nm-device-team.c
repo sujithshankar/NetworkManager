@@ -36,13 +36,12 @@
 #include "NetworkManagerUtils.h"
 #include "nm-device-private.h"
 #include "nm-platform.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-dbus-manager.h"
 #include "nm-enum-types.h"
 #include "nm-team-enum-types.h"
 #include "nm-posix-signals.h"
 
-#include "nm-device-team-glue.h"
+#include "nmdbus-device-team.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceTeam);
@@ -782,5 +781,5 @@ nm_device_team_class_init (NMDeviceTeamClass *klass)
 	                                        G_TYPE_FROM_CLASS (klass),
 	                                        &dbus_glib_nm_device_team_object_info);
 
-	dbus_g_error_domain_register (NM_DEVICE_TEAM_ERROR, NULL, NM_TYPE_TEAM_ERROR);
+	_nm_dbus_register_error_domain (NM_DEVICE_TEAM_ERROR, NULL, NM_TYPE_TEAM_ERROR);
 }

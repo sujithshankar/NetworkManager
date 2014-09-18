@@ -33,7 +33,6 @@
 #include "nm-device.h"
 #include "nm-dhcp4-config.h"
 #include "nm-dhcp6-config.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-glib-compat.h"
 
 #define CALL_TIMEOUT (1000 * 60 * 10)  /* 10 minutes for all scripts */

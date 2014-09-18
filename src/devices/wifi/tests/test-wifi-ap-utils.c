@@ -22,7 +22,6 @@
 #include <string.h>
 
 #include "nm-wifi-ap-utils.h"
-#include "nm-dbus-glib-types.h"
 
 #include "nm-setting-connection.h"
 #include "nm-setting-wireless.h"

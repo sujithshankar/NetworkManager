@@ -21,9 +21,6 @@
 
 #include <config.h>
 #include <glib.h>
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib-lowlevel.h>
-#include <dbus/dbus-glib.h>
 #include <getopt.h>
 #include <locale.h>
 #include <errno.h>

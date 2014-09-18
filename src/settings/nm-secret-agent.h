@@ -21,8 +21,7 @@
 #ifndef __NETWORKMANAGER_SECRET_AGENT_H__
 #define __NETWORKMANAGER_SECRET_AGENT_H__
 
-#include <glib.h>
-#include <glib-object.h>
+#include <gio/gio.h>
 
 #include <nm-connection.h>
 #include "nm-types.h"
@@ -44,7 +43,7 @@ typedef struct {
 
 GType nm_secret_agent_get_type (void);
 
-NMSecretAgent *nm_secret_agent_new (DBusGMethodInvocation *context,
+NMSecretAgent *nm_secret_agent_new (GDBusMethodInvocation *invocation,
                                     NMAuthSubject *subject,
                                     const char *identifier,
                                     NMSecretAgentCapabilities capabilities);
@@ -76,7 +75,7 @@ gboolean    nm_secret_agent_has_permission (NMSecretAgent *agent,
 
 typedef void (*NMSecretAgentCallback) (NMSecretAgent *agent,
                                        gconstpointer call,
-                                       GHashTable *new_secrets, /* NULL for save & delete */
+                                       GVariant *new_secrets, /* NULL for save & delete */
                                        GError *error,
                                        gpointer user_data);
 

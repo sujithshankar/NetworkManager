@@ -24,8 +24,6 @@
 
 #include <glib-object.h>
 
-void nm_properties_changed_signal_add_property (GType       type,
-                                                const char *dbus_property_name,
-                                                const char *gobject_property_name);
+void nm_properties_changed_signal_setup (GObjectClass *nm_type_class, GType dbus_type);
 
 #endif /* _NM_PROPERTIES_CHANGED_SIGNAL_H_ */

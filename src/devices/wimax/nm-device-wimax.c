@@ -43,11 +43,10 @@
 #include "nm-rfkill-manager.h"
 #include "iwmxsdk.h"
 #include "nm-enum-types.h"
-#include "nm-dbus-glib-types.h"
 
 static gboolean impl_device_get_nsp_list (NMDeviceWimax *device, GPtrArray **list, GError **error);
 
-#include "nm-device-wimax-glue.h"
+#include "nmdbus-device-wimax.h"
 
 G_DEFINE_TYPE (NMDeviceWimax, nm_device_wimax, NM_TYPE_DEVICE)
 
@@ -1425,5 +1424,5 @@ nm_device_wimax_class_init (NMDeviceWimaxClass *klass)
 	                                        G_TYPE_FROM_CLASS (klass),
 	                                        &dbus_glib_nm_device_wimax_object_info);
 
-	dbus_g_error_domain_register (NM_WIMAX_ERROR, NULL, NM_TYPE_WIMAX_ERROR);
+	_nm_dbus_register_error_domain (NM_WIMAX_ERROR, NULL, NM_TYPE_WIMAX_ERROR);
 }

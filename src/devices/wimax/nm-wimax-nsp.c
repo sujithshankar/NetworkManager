@@ -23,7 +23,7 @@
 #include "nm-dbus-interface.h"
 #include "nm-dbus-manager.h"
 #include "nm-setting-wimax.h"
-#include "nm-wimax-nsp-glue.h"
+#include "nmdbus-wimax-nsp.h"
 #include "nm-utils.h"
 
 G_DEFINE_TYPE (NMWimaxNsp, nm_wimax_nsp, G_TYPE_OBJECT)

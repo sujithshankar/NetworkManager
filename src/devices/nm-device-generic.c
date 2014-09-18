@@ -28,7 +28,7 @@
 #include "nm-glib-compat.h"
 #include "nm-dbus-manager.h"
 
-#include "nm-device-generic-glue.h"
+#include "nmdbus-device-generic.h"
 
 G_DEFINE_TYPE (NMDeviceGeneric, nm_device_generic, NM_TYPE_DEVICE)
 
@@ -208,9 +208,9 @@ nm_device_generic_class_init (NMDeviceGenericClass *klass)
 		                      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 		                      G_PARAM_STATIC_STRINGS));
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_generic_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_GENERIC,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_DEVICE_GENERIC_ERROR, NULL, NM_TYPE_DEVICE_GENERIC_ERROR);
+	_nm_dbus_register_error_domain (NM_DEVICE_GENERIC_ERROR, NM_DBUS_INTERFACE_DEVICE_GENERIC, NM_TYPE_DEVICE_GENERIC_ERROR);
 }

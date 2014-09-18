@@ -14,7 +14,7 @@ AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\""NetworkManager-wwan"\" \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
-	$(DBUS_CFLAGS) \
+	$(GLIB_CFLAGS) \
 	$(MM_GLIB_CFLAGS)
 
 BUILT_SOURCES = $(null)
@@ -45,7 +45,7 @@ WWAN_SYMBOL_VIS_FILE=$(srcdir)/wwan-exports.ver
 libnm_wwan_la_LDFLAGS = \
 	-avoid-version \
 	-Wl,--version-script=$(WWAN_SYMBOL_VIS_FILE)
-libnm_wwan_la_LIBADD = $(DBUS_LIBS) $(MM_GLIB_LIBS)
+libnm_wwan_la_LIBADD = $(GLIB_LIBS) $(MM_GLIB_LIBS)
 
 ###########################################################
 
@@ -68,8 +68,7 @@ libnm_device_plugin_wwan_la_LDFLAGS = \
 	-Wl,--version-script=$(SYMBOL_VIS_FILE)
 
 libnm_device_plugin_wwan_la_LIBADD = \
-	libnm-wwan.la \
-	$(DBUS_LIBS)
+	libnm-wwan.la
 
 ###########################################################
 

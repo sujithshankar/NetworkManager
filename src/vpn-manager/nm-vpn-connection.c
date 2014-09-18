@@ -41,14 +41,13 @@
 #include "nm-logging.h"
 #include "nm-utils.h"
 #include "nm-active-connection.h"
-#include "nm-dbus-glib-types.h"
 #include "NetworkManagerUtils.h"
 #include "nm-glib-compat.h"
 #include "settings/nm-settings-connection.h"
 #include "nm-dispatcher.h"
 #include "nm-agent-manager.h"
 
-#include "nm-vpn-connection-glue.h"
+#include "nmdbus-vpn-connection.h"
 
 G_DEFINE_TYPE (NMVpnConnection, nm_vpn_connection, NM_TYPE_ACTIVE_CONNECTION)
 
@@ -91,8 +90,8 @@ typedef struct {
 	guint dispatcher_id;
 	NMVpnConnectionStateReason failure_reason;
 
-	DBusGProxy *proxy;
-	GHashTable *connect_hash;
+	GDBusProxy *proxy;
+	GVariant *connect_dict;
 	guint connect_timeout;
 	gboolean has_ip4;
 	NMIP4Config *ip4_config;
@@ -134,10 +133,9 @@ static void get_secrets (NMVpnConnection *self,
                          SecretsReq secrets_idx,
                          const char **hints);
 
-static void plugin_interactive_secrets_required (DBusGProxy *proxy,
+static void plugin_interactive_secrets_required (NMVpnConnection *connection,
                                                  const char *message,
-                                                 const char **secrets,
-                                                 gpointer user_data);
+                                                 const char **secrets);
 
 static void _set_vpn_state (NMVpnConnection *connection,
                             VpnState vpn_state,
@@ -212,9 +210,16 @@ call_plugin_disconnect (NMVpnConnection *self)
 	GError *error = NULL;
 
 	if (priv->proxy) {
-		if (!dbus_g_proxy_call (priv->proxy, "Disconnect", &error,
-		                        G_TYPE_INVALID,
-		                        G_TYPE_INVALID)) {
+		GVariant *ret;
+
+		ret = g_dbus_proxy_call_sync (priv->proxy,
+		                              "Disconnect",
+		                              NULL,
+		                              G_DBUS_CALL_FLAGS_NONE, -1,
+		                              NULL, &error);
+		if (ret)
+			g_variant_unref (ret);
+		else {
 			nm_log_warn (LOGD_VPN, "error disconnecting VPN: %s", error->message);
 			g_error_free (error);
 		}
@@ -605,11 +610,10 @@ vpn_plugin_failure_to_string (NMVpnPluginFailure failure)
 }
 
 static void
-plugin_failed (DBusGProxy *proxy,
-               NMVpnPluginFailure plugin_failure,
-               gpointer user_data)
+plugin_failed (NMVpnConnection *self,
+               NMVpnPluginFailure plugin_failure)
 {
-	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (user_data);
+	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
 
 	nm_log_warn (LOGD_VPN, "VPN plugin failed: %s (%d)",
 	             vpn_plugin_failure_to_string (plugin_failure), plugin_failure);
@@ -703,11 +707,9 @@ vpn_reason_to_string (NMVpnConnectionStateReason reason)
 }
 
 static void
-plugin_state_changed (DBusGProxy *proxy,
-                      NMVpnServiceState state,
-                      gpointer user_data)
+plugin_state_changed (NMVpnConnection *connection,
+                      NMVpnServiceState state)
 {
-	NMVpnConnection *connection = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
 
 	nm_log_info (LOGD_VPN, "VPN plugin state changed: %s (%d)",
@@ -939,22 +941,18 @@ nm_vpn_connection_config_maybe_complete (NMVpnConnection *connection,
 
 static gboolean
 process_generic_config (NMVpnConnection *connection,
-                        GHashTable *config_hash)
+                        GVariant *config_dict)
 {
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
-	GValue *val;
+	const char *tundev;
+	GVariant *val;
+	guint32 mtu;
 
 	g_clear_pointer (&priv->ip_iface, g_free);
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_TUNDEV);
-	if (val) {
-		if (G_VALUE_HOLDS (val, G_TYPE_STRING)) {
-			const char *tmp = g_value_get_string (val);
-
-			/* Backwards compat with NM-openswan */
-			if (g_strcmp0 (tmp, "_none_") != 0)
-				priv->ip_iface = g_strdup (tmp);
-		} else
-			LOG_INVALID_ARG (NM_VPN_PLUGIN_CONFIG_TUNDEV);
+	if (g_variant_lookup (config_dict, NM_VPN_PLUGIN_CONFIG_TUNDEV, "&s", &tundev)) {
+		/* Backwards compat with NM-openswan */
+		if (g_strcmp0 (tundev, "_none_") != 0)
+			priv->ip_iface = g_strdup (tundev);
 	}
 
 	if (priv->ip_iface) {
@@ -968,32 +966,29 @@ process_generic_config (NMVpnConnection *connection,
 	}
 
 	g_clear_pointer (&priv->banner, g_free);
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_BANNER);
-	if (val) {
-		if (G_VALUE_HOLDS (val, G_TYPE_STRING))
-			priv->banner = g_strdup (g_value_get_string (val));
-		else
-			LOG_INVALID_ARG (NM_VPN_PLUGIN_CONFIG_BANNER);
-	}
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_CONFIG_BANNER, "&s", &priv->banner);
 
 	/* External world-visible address of the VPN server */
 	priv->ip4_external_gw = 0;
 	g_clear_pointer (&priv->ip6_external_gw, g_free);
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_EXT_GATEWAY);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_CONFIG_EXT_GATEWAY, NULL);
 	if (val) {
-		GByteArray *ba;
+		const guint8 *data;
+		gsize length;
 
-		if (G_VALUE_HOLDS (val, G_TYPE_UINT)) {
-			priv->ip4_external_gw = g_value_get_uint (val);
-		} else if (G_VALUE_HOLDS (val, DBUS_TYPE_G_UCHAR_ARRAY) &&
-		           (ba = g_value_get_boxed (val)) &&
-		           ba->len == sizeof (struct in6_addr)) {
-			priv->ip6_external_gw = g_memdup (ba->data, ba->len);
+		if (g_variant_is_of_type (val, G_VARIANT_TYPE_UINT32)) {
+			priv->ip4_external_gw = g_variant_get_uint32 (val);
+		} else if (   g_variant_is_of_type (val, G_VARIANT_TYPE_BYTESTRING)
+		           && (data = g_variant_get_fixed_array (val, &length, 1))
+		           && length == sizeof (struct in6_addr)) {
+			priv->ip6_external_gw = g_memdup (data, length);
 		} else {
 			nm_log_err (LOGD_VPN, "(%s): VPN gateway is neither IPv4 nor IPv6", priv->ip_iface);
 			nm_vpn_connection_config_maybe_complete (connection, FALSE);
+			g_variant_unref (val);
 			return FALSE;
 		}
+		g_variant_unref (val);
 	}
 
 	/* MTU; this is a per-connection value, though NM's API treats it
@@ -1001,25 +996,17 @@ process_generic_config (NMVpnConnection *connection,
 	 * later in ip4_config_get.
 	 */
 	priv->mtu = 0;
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_MTU);
-	if (val) {
-		if (G_VALUE_HOLDS (val, G_TYPE_UINT)) {
-			priv->mtu = g_value_get_uint (val);
-		} else
-			LOG_INVALID_ARG (NM_VPN_PLUGIN_CONFIG_MTU);
-	}
+	if (g_variant_lookup (config_dict, NM_VPN_PLUGIN_CONFIG_MTU, "u", &mtu))
+		priv->mtu = mtu;
 
 	return TRUE;
 }
 
 static void
-nm_vpn_connection_config_get (DBusGProxy *proxy,
-                              GHashTable *config_hash,
-                              gpointer user_data)
+nm_vpn_connection_config_get (NMVpnConnection *connection,
+                              GVariant *config_dict)
 {
-	NMVpnConnection *connection = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
-	GValue *val;
 
 	nm_log_info (LOGD_VPN, "VPN connection '%s' (IP Config Get) reply received.",
 	             nm_connection_get_id (priv->connection));
@@ -1027,29 +1014,17 @@ nm_vpn_connection_config_get (DBusGProxy *proxy,
 	if (priv->vpn_state == STATE_CONNECT)
 		_set_vpn_state (connection, STATE_IP_CONFIG_GET, NM_VPN_CONNECTION_STATE_REASON_NONE, FALSE);
 
-	if (!process_generic_config (connection, config_hash))
+	if (!process_generic_config (connection, config_dict))
 		return;
 
 	/* Note whether to expect IPv4 and IPv6 configs */
-	val = g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_HAS_IP4);
 	priv->has_ip4 = FALSE;
-	if (val) {
-		if (G_VALUE_HOLDS (val, G_TYPE_BOOLEAN))
-			priv->has_ip4 = g_value_get_boolean (val);
-		else
-			LOG_INVALID_ARG (NM_VPN_PLUGIN_CONFIG_HAS_IP4);
-	}
 	g_clear_object (&priv->ip4_config);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_CONFIG_HAS_IP4, "b", &priv->has_ip4);
 
-	val = g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_CONFIG_HAS_IP6);
 	priv->has_ip6 = FALSE;
-	if (val) {
-		if (G_VALUE_HOLDS (val, G_TYPE_BOOLEAN))
-			priv->has_ip6 = g_value_get_boolean (val);
-		else
-			LOG_INVALID_ARG (NM_VPN_PLUGIN_CONFIG_HAS_IP6);
-	}
 	g_clear_object (&priv->ip6_config);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_CONFIG_HAS_IP6, "b", &priv->has_ip6);
 }
 
 static guint
@@ -1067,15 +1042,13 @@ vpn_routing_metric (NMVpnConnection *connection)
 }
 
 static void
-nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
-                                  GHashTable *config_hash,
-                                  gpointer user_data)
+nm_vpn_connection_ip4_config_get (NMVpnConnection *connection,
+                                  GVariant *config_dict)
 {
-	NMVpnConnection *connection = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
 	NMPlatformIP4Address address;
 	NMIP4Config *config;
-	GValue *val;
+	GVariant *val;
 	int i;
 
 	if (priv->vpn_state == STATE_CONNECT)
@@ -1085,7 +1058,7 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 		nm_log_info (LOGD_VPN, "VPN connection '%s' (IP4 Config Get) reply received.",
 		             nm_connection_get_id (priv->connection));
 
-		if (g_hash_table_size (config_hash) == 0) {
+		if (g_variant_n_children (config_dict) == 0) {
 			priv->has_ip4 = FALSE;
 			nm_vpn_connection_config_maybe_complete (connection, TRUE);
 			return;
@@ -1097,7 +1070,7 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 		/* In the old API, the generic and IPv4 configuration items
 		 * were mixed together.
 		 */
-		if (!process_generic_config (connection, config_hash))
+		if (!process_generic_config (connection, config_dict))
 			return;
 
 		priv->has_ip4 = TRUE;
@@ -1112,21 +1085,11 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 		nm_ip4_config_set_gateway (config, priv->ip4_external_gw);
 
 	/* Internal address of the VPN subnet's gateway */
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_INT_GATEWAY);
-	if (val)
-		priv->ip4_internal_gw = g_value_get_uint (val);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_INT_GATEWAY, "u", &priv->ip4_internal_gw);
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_ADDRESS);
-	if (val)
-		address.address = g_value_get_uint (val);
-
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_PTP);
-	if (val)
-		address.peer_address = g_value_get_uint (val);
-
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_PREFIX);
-	if (val)
-		address.plen = g_value_get_uint (val);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_ADDRESS, "u", &address.address);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_PTP, "u", &address.peer_address);
+	g_variant_lookup (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_PREFIX, "u", &address.plen);
 
 	if (address.address && address.plen) {
 		address.source = NM_PLATFORM_SOURCE_VPN;
@@ -1138,50 +1101,66 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 		return;
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_DNS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_DNS, G_VARIANT_TYPE ("au"));
 	if (val) {
-		GArray *dns = (GArray *) g_value_get_boxed (val);
+		const guint32 *array;
+		gsize length;
 
-		for (i = 0; i < dns->len; i++)
-			nm_ip4_config_add_nameserver (config, g_array_index (dns, guint, i));
+		array = g_variant_get_fixed_array (val, &length, sizeof (guint32));
+
+		for (i = 0; i < length; i++)
+			nm_ip4_config_add_nameserver (config, array[i]);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_NBNS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_NBNS, G_VARIANT_TYPE ("au"));
 	if (val) {
-		GArray *nbns = (GArray *) g_value_get_boxed (val);
+		const guint32 *array;
+		gsize length;
 
-		for (i = 0; i < nbns->len; i++)
-			nm_ip4_config_add_wins (config, g_array_index (nbns, guint, i));
+		array = g_variant_get_fixed_array (val, &length, sizeof (guint32));
+
+		for (i = 0; i < length; i++)
+			nm_ip4_config_add_wins (config, array[i]);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_MSS);
-	if (val)
-		nm_ip4_config_set_mss (config, g_value_get_uint (val));
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_MSS, G_VARIANT_TYPE_UINT32);
+	if (val) {
+		nm_ip4_config_set_mss (config, g_variant_get_uint32 (val));
+		g_variant_unref (val);
+	}
 
 	if (priv->mtu)
 		nm_ip4_config_set_mtu (config, priv->mtu);
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_DOMAIN);
-	if (val)
-		nm_ip4_config_add_domain (config, g_value_get_string (val));
-
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_DOMAINS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_DOMAIN, G_VARIANT_TYPE_STRING);
 	if (val) {
-		const char **domains = g_value_get_boxed (val);
-		const char **domain;
+		nm_ip4_config_add_domain (config, g_variant_get_string (val, NULL));
+		g_variant_unref (val);
+	}
+
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_DOMAINS, G_VARIANT_TYPE_STRING_ARRAY);
+	if (val) {
+		char **domains = g_variant_dup_strv (val, NULL);
+		char **domain;
 
 		for (domain = domains; domain && *domain; domain++)
 			nm_ip4_config_add_domain (config, *domain);
+
+		g_strfreev (domains);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_ROUTES);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_ROUTES, G_VARIANT_TYPE ("aau"));
 	if (val) {
-		GSList *routes;
-		GSList *iter;
+		GValue gval = { 0, };
+		GPtrArray *routes;
 
-		routes = nm_utils_ip4_routes_from_gvalue (val);
-		for (iter = routes; iter; iter = iter->next) {
-			NMIP4Route *item = iter->data;
+		g_value_init (&gval, G_TYPE_PTR_ARRAY);
+		_nm_utils_ip4_addresses_from_dbus (val, &gval);
+		routes = g_value_get_boxed (&gval);
+
+		for (i = 0; i < routes->len; i++) {
+			NMIP4Route *item = routes->pdata[i];
 			NMPlatformIP4Route route;
 
 			memset (&route, 0, sizeof (route));
@@ -1203,12 +1182,16 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 			nm_ip4_config_add_route (config, &route);
 		}
 
-		g_slist_free_full (routes, (GDestroyNotify) nm_ip4_route_unref);
+		g_ptr_array_unref (routes);
+		g_value_unset (&gval);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP4_CONFIG_NEVER_DEFAULT);
-	if (val && G_VALUE_HOLDS_BOOLEAN (val))
-		nm_ip4_config_set_never_default (config, g_value_get_boolean (val));
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP4_CONFIG_NEVER_DEFAULT, G_VARIANT_TYPE_BOOLEAN);
+	if (val) {
+		nm_ip4_config_set_never_default (config, g_variant_get_boolean (val));
+		g_variant_unref (val);
+	}
 
 	/* Merge in user overrides from the NMConnection's IPv4 setting */
 	nm_ip4_config_merge_setting (config,
@@ -1222,16 +1205,13 @@ nm_vpn_connection_ip4_config_get (DBusGProxy *proxy,
 }
 
 static void
-nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
-                                  GHashTable *config_hash,
-                                  gpointer user_data)
+nm_vpn_connection_ip6_config_get (NMVpnConnection *connection,
+                                  GVariant *config_dict)
 {
-	NMVpnConnection *connection = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
 	NMPlatformIP6Address address;
 	NMIP6Config *config;
-	GValue *val;
-	int i;
+	GVariant *val;
 
 	nm_log_info (LOGD_VPN, "VPN connection '%s' (IP6 Config Get) reply received.",
 	             nm_connection_get_id (priv->connection));
@@ -1239,7 +1219,7 @@ nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
 	if (priv->vpn_state == STATE_CONNECT)
 		_set_vpn_state (connection, STATE_IP_CONFIG_GET, NM_VPN_CONNECTION_STATE_REASON_NONE, FALSE);
 
-	if (g_hash_table_size (config_hash) == 0) {
+	if (g_variant_n_children (config_dict) == 0) {
 		priv->has_ip6 = FALSE;
 		nm_vpn_connection_config_maybe_complete (connection, TRUE);
 		return;
@@ -1254,33 +1234,44 @@ nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
 
 	/* Internal address of the VPN subnet's gateway */
 	g_clear_pointer (&priv->ip6_internal_gw, g_free);
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_INT_GATEWAY);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_INT_GATEWAY, G_VARIANT_TYPE_BYTESTRING);
 	if (val) {
-		GByteArray *ba = g_value_get_boxed (val);
+		const guint8 *data;
+		gsize length;
 
-		if (ba->len == sizeof (struct in6_addr))
-			priv->ip6_internal_gw = g_memdup (ba->data, ba->len);
+		data = g_variant_get_fixed_array (val, &length, 1);
+		if (length == sizeof (struct in6_addr))
+			priv->ip6_internal_gw = g_memdup (data, length);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_ADDRESS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_ADDRESS, G_VARIANT_TYPE_BYTESTRING);
 	if (val) {
-		GByteArray *ba = g_value_get_boxed (val);
+		const guint8 *data;
+		gsize length;
 
-		if (ba->len == sizeof (struct in6_addr))
-			address.address = *(struct in6_addr *) ba->data;
+		data = g_variant_get_fixed_array (val, &length, 1);
+		if (length == sizeof (struct in6_addr))
+			memcpy (&address.address, data, length);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_PTP);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_PTP, G_VARIANT_TYPE_BYTESTRING);
 	if (val) {
-		GByteArray *ba = g_value_get_boxed (val);
+		const guint8 *data;
+		gsize length;
 
-		if (ba->len == sizeof (struct in6_addr))
-			address.peer_address = *(struct in6_addr *) ba->data;
+		data = g_variant_get_fixed_array (val, &length, 1);
+		if (length == sizeof (struct in6_addr))
+			memcpy (&address.peer_address, data, length);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_PREFIX);
-	if (val)
-		address.plen = g_value_get_uint (val);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_PREFIX, G_VARIANT_TYPE_UINT32);
+	if (val) {
+		address.plen = g_variant_get_uint32 (val);
+		g_variant_unref (val);
+	}
 
 	if (!IN6_IS_ADDR_UNSPECIFIED (&address.address) && address.plen) {
 		address.source = NM_PLATFORM_SOURCE_VPN;
@@ -1289,45 +1280,63 @@ nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
 		nm_log_err (LOGD_VPN, "invalid IP6 config received!");
 		g_object_unref (config);
 		nm_vpn_connection_config_maybe_complete (connection, FALSE);
+		return;
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_DNS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_DNS, G_VARIANT_TYPE ("aay"));
 	if (val) {
-		GPtrArray *dns = (GPtrArray *) g_value_get_boxed (val);
-		GByteArray *ba;
+		GVariantIter iter;
+		GVariant *addr;
+		const guint8 *data;
+		gsize length;
 
-		for (i = 0; i < dns->len; i++) {
-			ba = dns->pdata[i];
-			if (ba->len == sizeof (struct in6_addr))
-				nm_ip6_config_add_nameserver (config, (struct in6_addr *)ba->data);
+		g_variant_iter_init (&iter, val);
+		while (g_variant_iter_next (&iter, "@ay", &addr)) {
+			data = g_variant_get_fixed_array (addr, &length, 1);
+			if (length == sizeof (struct in6_addr))
+				nm_ip6_config_add_nameserver (config, (struct in6_addr *)data);
+			g_variant_unref (addr);
 		}
+
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_MSS);
-	if (val)
-		nm_ip6_config_set_mss (config, g_value_get_uint (val));
-
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_DOMAIN);
-	if (val)
-		nm_ip6_config_add_domain (config, g_value_get_string (val));
-
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_DOMAINS);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_MSS, G_VARIANT_TYPE_UINT32);
 	if (val) {
-		const char **domains = g_value_get_boxed (val);
-		const char **domain;
+		nm_ip6_config_set_mss (config, g_variant_get_uint32 (val));
+		g_variant_unref (val);
+	}
+
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_DOMAIN, G_VARIANT_TYPE_STRING);
+	if (val) {
+		nm_ip6_config_add_domain (config, g_variant_get_string (val, NULL));
+		g_variant_unref (val);
+	}
+
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_DOMAINS, G_VARIANT_TYPE_STRING_ARRAY);
+	if (val) {
+		char **domains = g_variant_dup_strv (val, NULL);
+		char **domain;
 
 		for (domain = domains; domain && *domain; domain++)
 			nm_ip6_config_add_domain (config, *domain);
+		g_free (domains);
+
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_ROUTES);
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_ROUTES, G_VARIANT_TYPE ("a(ayuayu)"));
 	if (val) {
-		GSList *routes;
-		GSList *iter;
+		GValue gval = { 0, };
+		GPtrArray *routes;
+		int i;
 
-		routes = nm_utils_ip6_routes_from_gvalue (val);
-		for (iter = routes; iter; iter = iter->next) {
-			NMIP6Route *item = iter->data;
+		g_value_init (&gval, G_TYPE_PTR_ARRAY);
+		_nm_utils_ip6_addresses_from_dbus (val, &gval);
+		routes = g_value_get_boxed (&gval);
+
+		for (i = 0; i < routes->len; i++) {
+			NMIP6Route *item = routes->pdata[i];
 			NMPlatformIP6Route route;
 
 			memset (&route, 0, sizeof (route));
@@ -1349,12 +1358,16 @@ nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
 			nm_ip6_config_add_route (config, &route);
 		}
 
-		g_slist_free_full (routes, (GDestroyNotify) nm_ip6_route_unref);
+		g_ptr_array_unref (routes);
+		g_value_unset (&gval);
+		g_variant_unref (val);
 	}
 
-	val = (GValue *) g_hash_table_lookup (config_hash, NM_VPN_PLUGIN_IP6_CONFIG_NEVER_DEFAULT);
-	if (val && G_VALUE_HOLDS_BOOLEAN (val))
-		nm_ip6_config_set_never_default (config, g_value_get_boolean (val));
+	val = g_variant_lookup_value (config_dict, NM_VPN_PLUGIN_IP6_CONFIG_NEVER_DEFAULT, G_VARIANT_TYPE_BOOLEAN);
+	if (val) {
+		nm_ip6_config_set_never_default (config, g_variant_get_boolean (val));
+		g_variant_unref (val);
+	}
 
 	/* Merge in user overrides from the NMConnection's IPv6 setting */
 	nm_ip6_config_merge_setting (config,
@@ -1365,6 +1378,63 @@ nm_vpn_connection_ip6_config_get (DBusGProxy *proxy,
 	nm_ip6_config_export (config);
 	g_object_notify (G_OBJECT (connection), NM_ACTIVE_CONNECTION_IP6_CONFIG);
 	nm_vpn_connection_config_maybe_complete (connection, TRUE);
+}
+
+static void
+proxy_signal (GDBusProxy *proxy,
+              const char *sender_name,
+              const char *signal_name,
+              GVariant   *parameters,
+              gpointer    user_data)
+{
+	NMVpnConnection *connection = user_data;
+
+	if (   !strcmp (signal_name, "Config")
+	    && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(a{sv})"))) {
+		GVariant *props;
+
+		g_variant_get (parameters, "(@a{sv})", &props);
+		nm_vpn_connection_config_get (connection, props);
+		g_variant_unref (props);
+	} else if (   !strcmp (signal_name, "Ip4Config")
+	           && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(a{sv})"))) {
+		GVariant *props;
+
+		g_variant_get (parameters, "(@a{sv})", &props);
+		nm_vpn_connection_ip4_config_get (connection, props);
+		g_variant_unref (props);
+	} else if (   !strcmp (signal_name, "Ip6Config")
+	           && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(a{sv})"))) {
+		GVariant *props;
+
+		g_variant_get (parameters, "(@a{sv})", &props);
+		nm_vpn_connection_ip6_config_get (connection, props);
+		g_variant_unref (props);
+	} else if (   !strcmp (signal_name, "Failure")
+	           && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(u)"))) {
+		guint32 reason;
+
+		g_variant_get (parameters, "(u)", &reason);
+		plugin_failed (connection, reason);
+	} else if (   !strcmp (signal_name, "StateChanged")
+	           && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(u)"))) {
+		guint32 state;
+
+		g_variant_get (parameters, "(u)", &state);
+		plugin_state_changed (connection, state);
+	} else if (   !strcmp (signal_name, "SecretsRequired")
+	           && g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(sas)"))) {
+		const char *message;
+		char **secrets;
+
+		g_variant_get (parameters, "(&s^as)", &message, &secrets);
+		plugin_interactive_secrets_required (connection, message, (const char **) secrets);
+		g_strfreev (secrets);
+	} else {
+		nm_log_warn (LOGD_VPN, "unknown %s signal received (%s %s)",
+		             NM_VPN_DBUS_PLUGIN_INTERFACE, signal_name,
+		             g_variant_get_type_string (parameters));
+	}
 }
 
 static gboolean
@@ -1394,22 +1464,24 @@ connect_success (NMVpnConnection *connection)
 	/* 40 second timeout waiting for IP config signal from VPN service */
 	priv->connect_timeout = g_timeout_add_seconds (40, connect_timeout_cb, connection);
 
-	g_hash_table_destroy (priv->connect_hash);
-	priv->connect_hash = NULL;
+	g_variant_unref (priv->connect_dict);
+	priv->connect_dict = NULL;
 }
 
 static void
-connect_cb (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data)
+connect_cb (GObject *proxy, GAsyncResult *result, void *user_data)
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
+	GVariant *ret;
 	GError *err = NULL;
 
 	nm_log_info (LOGD_VPN, "VPN connection '%s' (Connect) reply received.",
 	             nm_connection_get_id (priv->connection));
 
-	dbus_g_proxy_end_call (proxy, call, &err, G_TYPE_INVALID);
-	if (!err) {
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &err);
+	if (ret) {
+		g_variant_unref (ret);
 		connect_success (self);
 		return;
 	}
@@ -1421,42 +1493,49 @@ connect_cb (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data)
 }
 
 static void
-connect_interactive_cb (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data)
+connect_interactive_cb (GObject *proxy, GAsyncResult *result, void *user_data)
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
+	GVariant *ret;
 	GError *err = NULL;
+	char *remote_error;
 
 	nm_log_info (LOGD_VPN, "VPN connection '%s' (ConnectInteractive) reply received.",
 	             nm_connection_get_id (priv->connection));
 
-	dbus_g_proxy_end_call (proxy, call, &err, G_TYPE_INVALID);
-	if (!err) {
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &err);
+	if (ret) {
+		g_variant_unref (ret);
 		connect_success (self);
 		return;
 	}
 
-	if (dbus_g_error_has_name (err, NM_DBUS_VPN_ERROR_PREFIX "." NM_DBUS_VPN_INTERACTIVE_NOT_SUPPORTED)) {
+	remote_error = g_dbus_error_get_remote_error (err);
+	if (!g_strcmp0 (remote_error, NM_DBUS_VPN_ERROR_PREFIX "." NM_DBUS_VPN_INTERACTIVE_NOT_SUPPORTED)) {
 		/* Fall back to Connect() */
-		dbus_g_proxy_begin_call (priv->proxy, "Connect",
-		                         connect_cb, self, NULL,
-		                         DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, priv->connect_hash,
-		                         G_TYPE_INVALID);
+		g_dbus_proxy_call (priv->proxy,
+		                   "Connect",
+		                   g_variant_new ("(@a{sv})", priv->connect_dict),
+		                   G_DBUS_CALL_FLAGS_NONE, -1,
+		                   NULL,
+		                   connect_cb, self);
 	} else {
 		nm_log_warn (LOGD_VPN, "VPN connection '%s' failed to connect interactively: '%s'.",
 		             nm_connection_get_id (priv->connection), err->message);
-		g_error_free (err);
 		_set_vpn_state (self, STATE_FAILED, NM_VPN_CONNECTION_STATE_REASON_SERVICE_START_FAILED, FALSE);
 	}
+
+	g_error_free (err);
+	g_free (remote_error);
 }
 
-/* Add a username to a hashed connection */
-static GHashTable *
-_hash_with_username (NMConnection *connection, const char *username)
+/* Add a username to a serialized connection */
+static GVariant *
+_dict_with_username (NMConnection *connection, const char *username)
 {
 	NMConnection *dup;
 	NMSettingVpn *s_vpn;
-	GHashTable *hash;
 	GVariant *dict;
 	const char *existing;
 
@@ -1480,10 +1559,7 @@ _hash_with_username (NMConnection *connection, const char *username)
 	g_object_set (s_vpn, NM_SETTING_VPN_USER_NAME, username, NULL);
 	dict = nm_connection_to_dbus (dup, NM_CONNECTION_SERIALIZE_ALL);
 	g_object_unref (dup);
-
-	hash = nm_utils_connection_dict_to_hash (dict);
-	g_variant_unref (dict);
-	return hash;
+	return dict;
 }
 
 static void
@@ -1491,37 +1567,20 @@ really_activate (NMVpnConnection *connection, const char *username)
 {
 	NMVpnConnectionPrivate *priv;
 	NMAgentManager *agent_mgr;
-	GHashTable *details;
+	GVariant *details;
 
 	g_return_if_fail (NM_IS_VPN_CONNECTION (connection));
 
 	priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
 	g_return_if_fail (priv->vpn_state == STATE_NEED_AUTH);
 
-	dbus_g_object_register_marshaller (g_cclosure_marshal_VOID__BOXED,
-	                                   G_TYPE_NONE, G_TYPE_VALUE, G_TYPE_INVALID);
+	g_signal_connect (priv->proxy, "g-signal",
+	                  G_CALLBACK (proxy_signal), connection);
 
-	dbus_g_proxy_add_signal (priv->proxy, "Config", DBUS_TYPE_G_MAP_OF_VARIANT, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "Config",
-	                             G_CALLBACK (nm_vpn_connection_config_get),
-	                             connection, NULL);
-
-	/* Ip4Config signal */
-	dbus_g_proxy_add_signal (priv->proxy, "Ip4Config", DBUS_TYPE_G_MAP_OF_VARIANT, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "Ip4Config",
-	                             G_CALLBACK (nm_vpn_connection_ip4_config_get),
-	                             connection, NULL);
-
-	/* Ip6Config signal */
-	dbus_g_proxy_add_signal (priv->proxy, "Ip6Config", DBUS_TYPE_G_MAP_OF_VARIANT, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "Ip6Config",
-	                             G_CALLBACK (nm_vpn_connection_ip6_config_get),
-	                             connection, NULL);
-
-	if (priv->connect_hash)
-		g_hash_table_destroy (priv->connect_hash);
-	priv->connect_hash = _hash_with_username (priv->connection, username);
-	details = g_hash_table_new (g_str_hash, g_str_equal);
+	if (priv->connect_dict)
+		g_variant_unref (priv->connect_dict);
+	priv->connect_dict = _dict_with_username (priv->connection, username);
+	g_variant_ref_sink (priv->connect_dict);
 
 	/* If at least one agent doesn't support VPN hints, then we can't use
 	 * ConnectInteractive(), because that agent won't be able to pass hints
@@ -1534,20 +1593,23 @@ really_activate (NMVpnConnection *connection, const char *username)
 	                                                 nm_active_connection_get_subject (NM_ACTIVE_CONNECTION (connection)),
 	                                                 NM_SECRET_AGENT_CAPABILITY_VPN_HINTS)) {
 		nm_log_dbg (LOGD_VPN, "Allowing interactive secrets as all agents have that capability");
-		dbus_g_proxy_begin_call (priv->proxy, "ConnectInteractive",
-		                         connect_interactive_cb, connection, NULL,
-		                         DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, priv->connect_hash,
-		                         DBUS_TYPE_G_MAP_OF_VARIANT, details,
-		                         G_TYPE_INVALID);
+		details = g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0);
+		g_dbus_proxy_call (priv->proxy,
+		                   "ConnectInteractive",
+		                   g_variant_new ("(a{sa{sv}}a{sv})", priv->connect_dict, details),
+		                   G_DBUS_CALL_FLAGS_NONE, -1,
+		                   NULL,
+		                   connect_interactive_cb, connection);
 	} else {
 		nm_log_dbg (LOGD_VPN, "Calling old Connect function as not all agents support interactive secrets");
-		dbus_g_proxy_begin_call (priv->proxy, "Connect",
-		                         connect_cb, connection, NULL,
-		                         DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, priv->connect_hash,
-		                         G_TYPE_INVALID);
+		g_dbus_proxy_call (priv->proxy,
+		                   "Connect",
+		                   g_variant_new ("(a{sa{sv}})", priv->connect_dict),
+		                   G_DBUS_CALL_FLAGS_NONE, -1,
+		                   NULL,
+		                   connect_cb, connection);
 	}
 	g_object_unref (agent_mgr);
-	g_hash_table_destroy (details);
 
 	_set_vpn_state (connection, STATE_CONNECT, NM_VPN_CONNECTION_STATE_REASON_NONE, FALSE);
 }
@@ -1556,7 +1618,7 @@ void
 nm_vpn_connection_activate (NMVpnConnection *connection)
 {
 	NMVpnConnectionPrivate *priv;
-	DBusGConnection *bus;
+	GDBusConnection *bus;
 
 	g_return_if_fail (NM_IS_VPN_CONNECTION (connection));
 
@@ -1565,28 +1627,16 @@ nm_vpn_connection_activate (NMVpnConnection *connection)
 	_set_vpn_state (connection, STATE_PREPARE, NM_VPN_CONNECTION_STATE_REASON_NONE, FALSE);
 
 	bus = nm_dbus_manager_get_connection (nm_dbus_manager_get ());
-	priv->proxy = dbus_g_proxy_new_for_name (bus,
-	                                         nm_vpn_connection_get_service (connection),
-	                                         NM_VPN_DBUS_PLUGIN_PATH,
-	                                         NM_VPN_DBUS_PLUGIN_INTERFACE);
+	priv->proxy = g_dbus_proxy_new_sync (bus,
+	                                     G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
+	                                     NULL,
+	                                     nm_vpn_connection_get_service (connection),
+	                                     NM_VPN_DBUS_PLUGIN_PATH,
+	                                     NM_VPN_DBUS_PLUGIN_INTERFACE,
+	                                     NULL, NULL);
 
-	dbus_g_proxy_add_signal (priv->proxy, "Failure", G_TYPE_UINT, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "Failure",
-	                             G_CALLBACK (plugin_failed),
-	                             connection, NULL);
-
-	/* StateChanged signal */
-	dbus_g_proxy_add_signal (priv->proxy, "StateChanged", G_TYPE_UINT, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "StateChanged",
-	                             G_CALLBACK (plugin_state_changed),
-	                             connection, NULL);
-
-	dbus_g_object_register_marshaller (g_cclosure_marshal_generic,
-	                                   G_TYPE_NONE, G_TYPE_STRING, G_TYPE_STRV, G_TYPE_INVALID);
-	dbus_g_proxy_add_signal (priv->proxy, "SecretsRequired", G_TYPE_STRING, G_TYPE_STRV, G_TYPE_INVALID);
-	dbus_g_proxy_connect_signal (priv->proxy, "SecretsRequired",
-	                             G_CALLBACK (plugin_interactive_secrets_required),
-	                             connection, NULL);
+	g_signal_connect (priv->proxy, "g-signal",
+	                  G_CALLBACK (proxy_signal), connection);
 
 	_set_vpn_state (connection, STATE_NEED_AUTH, NM_VPN_CONNECTION_STATE_REASON_NONE, FALSE);
 
@@ -1701,16 +1751,15 @@ nm_vpn_connection_deactivate (NMVpnConnection *connection,
 /******************************************************************************/
 
 static void
-plugin_need_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data)
+plugin_need_secrets_cb  (GObject *proxy, GAsyncResult *result, void *user_data)
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
+	GVariant *ret;
 	GError *error = NULL;
-	char *setting_name;
+	const char *setting_name;
 
-	dbus_g_proxy_end_call (proxy, call, &error,
-	                       G_TYPE_STRING, &setting_name,
-	                       G_TYPE_INVALID);
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &error);
 	if (error) {
 		nm_log_err (LOGD_VPN, "(%s/%s) plugin NeedSecrets request #%d failed: %s %s",
 		            nm_connection_get_uuid (priv->connection),
@@ -1723,7 +1772,8 @@ plugin_need_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_dat
 		return;
 	}
 
-	if (setting_name && strlen (setting_name)) {
+	g_variant_get (ret, "(&s)", &setting_name);
+	if (*setting_name) {
 		/* More secrets required */
 
 		if (priv->secrets_idx == SECRETS_REQ_NEW) {
@@ -1738,9 +1788,11 @@ plugin_need_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_dat
 
 			get_secrets (self, priv->secrets_idx + 1, NULL);
 		}
-		return;
+
+		g_variant_unref (ret);
 	}
 
+	g_variant_unref (ret);
 	nm_log_dbg (LOGD_VPN, "(%s/%s) service indicated no additional secrets required",
 	            nm_connection_get_uuid (priv->connection),
 	            nm_connection_get_id (priv->connection));
@@ -1750,13 +1802,15 @@ plugin_need_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_dat
 }
 
 static void
-plugin_new_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data)
+plugin_new_secrets_cb  (GObject *proxy, GAsyncResult *result, void *user_data)
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
+	GVariant *ret;
 	GError *error = NULL;
 
-	if (!dbus_g_proxy_end_call (proxy, call, &error, G_TYPE_INVALID)) {
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &error);
+	if (!ret) {
 		nm_log_err (LOGD_VPN, "(%s/%s) sending new secrets to the plugin failed: %s %s",
 		            nm_connection_get_uuid (priv->connection),
 		            nm_connection_get_id (priv->connection),
@@ -1765,6 +1819,8 @@ plugin_new_secrets_cb  (DBusGProxy *proxy, DBusGProxyCall *call, void *user_data
 		_set_vpn_state (self, STATE_FAILED, NM_VPN_CONNECTION_STATE_REASON_NO_SECRETS, FALSE);
 		g_error_free (error);
 	}
+
+	g_variant_unref (ret);
 }
 
 static void
@@ -1777,7 +1833,7 @@ get_secrets_cb (NMSettingsConnection *connection,
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
-	GHashTable *hash;
+	GVariant *dict;
 
 	g_return_if_fail (NM_CONNECTION (connection) == priv->connection);
 	g_return_if_fail (call_id == priv->secrets_id);
@@ -1795,7 +1851,7 @@ get_secrets_cb (NMSettingsConnection *connection,
 			priv->username = g_strdup (agent_username);
 		}
 
-		hash = _hash_with_username (priv->connection, priv->username);
+		dict = _dict_with_username (priv->connection, priv->username);
 
 		if (priv->secrets_idx == SECRETS_REQ_INTERACTIVE) {
 			nm_log_dbg (LOGD_VPN, "(%s/%s) sending secrets to the plugin",
@@ -1803,23 +1859,25 @@ get_secrets_cb (NMSettingsConnection *connection,
 			            nm_connection_get_id (priv->connection));
 
 			/* Send the secrets back to the plugin */
-			dbus_g_proxy_begin_call (priv->proxy, "NewSecrets",
-			                         plugin_new_secrets_cb, self, NULL,
-			                         DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, hash,
-			                         G_TYPE_INVALID);
+			g_dbus_proxy_call (priv->proxy,
+			                   "NewSecrets",
+			                   g_variant_new ("(@a{sv})", dict),
+			                   G_DBUS_CALL_FLAGS_NONE, -1,
+			                   NULL,
+			                   plugin_new_secrets_cb, self);
 		} else {
 			nm_log_dbg (LOGD_VPN, "(%s/%s) asking service if additional secrets are required",
 			            nm_connection_get_uuid (priv->connection),
 			            nm_connection_get_id (priv->connection));
 
 			/* Ask the VPN service if more secrets are required */
-			dbus_g_proxy_begin_call (priv->proxy, "NeedSecrets",
-			                         plugin_need_secrets_cb, self, NULL,
-			                         DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, hash,
-			                         G_TYPE_INVALID);
+			g_dbus_proxy_call (priv->proxy,
+			                   "NeedSecrets",
+			                   g_variant_new ("(@a{sv})", dict),
+			                   G_DBUS_CALL_FLAGS_NONE, -1,
+			                   NULL,
+			                   plugin_need_secrets_cb, self);
 		}
-
-		g_hash_table_destroy (hash);
 	}
 }
 
@@ -1877,12 +1935,10 @@ get_secrets (NMVpnConnection *self,
 }
 
 static void
-plugin_interactive_secrets_required (DBusGProxy *proxy,
+plugin_interactive_secrets_required (NMVpnConnection *connection,
                                      const char *message,
-                                     const char **secrets,
-                                     gpointer user_data)
+                                     const char **secrets)
 {
-	NMVpnConnection *connection = NM_VPN_CONNECTION (user_data);
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (connection);
 	guint32 secrets_len = secrets ? g_strv_length ((char **) secrets) : 0;
 	char **hints;
@@ -1935,10 +1991,7 @@ dispose (GObject *object)
 {
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (object);
 
-	if (priv->connect_hash) {
-		g_hash_table_destroy (priv->connect_hash);
-		priv->connect_hash = NULL;
-	}
+	g_clear_pointer (&priv->connect_dict, g_variant_unref);
 
 	if (priv->connect_timeout) {
 		g_source_remove (priv->connect_timeout);
@@ -1997,19 +2050,19 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_IP4_CONFIG:
 		if (ip_config_valid (priv->vpn_state) && priv->ip4_config)
-			g_value_set_boxed (value, nm_ip4_config_get_dbus_path (priv->ip4_config));
+			g_value_set_string (value, nm_ip4_config_get_dbus_path (priv->ip4_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_IP6_CONFIG:
 		if (ip_config_valid (priv->vpn_state) && priv->ip6_config)
-			g_value_set_boxed (value, nm_ip6_config_get_dbus_path (priv->ip6_config));
+			g_value_set_string (value, nm_ip6_config_get_dbus_path (priv->ip6_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_MASTER:
 		parent_dev = nm_active_connection_get_device (NM_ACTIVE_CONNECTION (object));
-		g_value_set_boxed (value, parent_dev ? nm_device_get_path (parent_dev) : "/");
+		g_value_set_string (value, parent_dev ? nm_device_get_path (parent_dev) : "/");
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2071,8 +2124,7 @@ nm_vpn_connection_class_init (NMVpnConnectionClass *connection_class)
 		              0, NULL, NULL, NULL,
 		              G_TYPE_NONE, 3, G_TYPE_UINT, G_TYPE_UINT, G_TYPE_UINT);
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (object_class),
-	                                        &dbus_glib_nm_vpn_connection_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (connection_class),
+	                               NMDBUS_TYPE_VPN_CONNECTION,
+	                               NULL);
 }
-

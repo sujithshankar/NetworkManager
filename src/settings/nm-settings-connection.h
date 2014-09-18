@@ -66,6 +66,10 @@ struct _NMSettingsConnection {
 struct _NMSettingsConnectionClass {
 	GObjectClass parent;
 
+	/* signals */
+	void (*updated) (NMSettingsConnection *connection);
+	void (*removed) (NMSettingsConnection *connection);
+
 	/* virtual methods */
 	void (*commit_changes) (NMSettingsConnection *connection,
 	                        NMSettingsConnectionCommitFunc callback,
@@ -80,6 +84,9 @@ struct _NMSettingsConnectionClass {
 };
 
 GType nm_settings_connection_get_type (void);
+
+void nm_settings_connection_export (NMSettingsConnection *connection,
+                                    const char *path);
 
 void nm_settings_connection_commit_changes (NMSettingsConnection *connection,
                                             NMSettingsConnectionCommitFunc callback,

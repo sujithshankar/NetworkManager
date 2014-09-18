@@ -26,7 +26,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#include <dbus/dbus-glib.h>
 #include <nm-setting.h>
 #include <nm-setting-connection.h>
 #include <nm-setting-ip4-config.h>
@@ -41,7 +40,6 @@
 #include <string.h>
 #include <arpa/inet.h>
 
-#include "nm-dbus-glib-types.h"
 #include "nm-glib-compat.h"
 #include "nm-logging.h"
 #include "writer.h"
@@ -456,19 +454,22 @@ password_raw_writer (GKeyFile *file,
                      const GValue *value)
 {
 	const char *setting_name = nm_setting_get_name (setting);
-	GByteArray *array;
+	GBytes *bytes;
+	const guint8 *data;
+	gsize length;
 	int i, *tmp_array;
 
-	g_return_if_fail (G_VALUE_HOLDS (value, DBUS_TYPE_G_UCHAR_ARRAY));
+	g_return_if_fail (G_VALUE_HOLDS (value, G_TYPE_BYTES));
 
-	array = (GByteArray *) g_value_get_boxed (value);
-	if (!array || !array->len)
+	bytes = g_value_get_boxed (value);
+	if (!bytes || !g_bytes_get_size (bytes))
 		return;
 
-	tmp_array = g_new (gint, array->len);
-	for (i = 0; i < array->len; i++)
-		tmp_array[i] = (int) array->data[i];
-	nm_keyfile_plugin_kf_set_integer_list (file, setting_name, key, tmp_array, array->len);
+	data = g_bytes_get_data (bytes, &length);
+	tmp_array = g_new (gint, length);
+	for (i = 0; i < length; i++)
+		tmp_array[i] = (int) data[i];
+	nm_keyfile_plugin_kf_set_integer_list (file, setting_name, key, tmp_array, length);
 	g_free (tmp_array);
 }
 

@@ -22,10 +22,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#include <dbus/dbus-glib.h>
 #include "nm-logging.h"
 #include "nm-properties-changed-signal.h"
-#include "nm-dbus-glib-types.h"
 
 typedef struct {
 	GHashTable *exported_props;
@@ -171,27 +169,60 @@ notify (GObject *object, GParamSpec *pspec)
 		info->idle_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, properties_changed, object, idle_id_reset);
 }
 
-static NMPropertiesChangedClassInfo *
-nm_properties_changed_signal_setup_type (GType type)
+
+static char *
+hyphenify (const char *prop_name)
+{
+	char *hyphenified, *p;
+
+	hyphenified = g_strdup (prop_name);
+	for (p = hyphenified; *p; p++) {
+		if (*p == '_')
+			*p = '-';
+	}
+	return hyphenified;
+}
+
+static char *
+dbusify (const char *prop_name)
+{
+	char *dbusified, *s, *d;
+	gboolean capitalize = TRUE;
+
+	dbusified = g_malloc (strlen (prop_name));
+	for (s = prop_name, d = dbusified; *s; s++) {
+		if (capitalize) {
+			*d++ = g_ascii_toupper (*s);
+			capitalize = FALSE;
+		} else if (*s == '-')
+			capitalize = TRUE;
+		else
+			*d++ = *s;
+	}
+	return dbusified;
+}
+
+void
+nm_properties_changed_signal_setup (GType nm_type, GType dbus_type)
 {
 	NMPropertiesChangedClassInfo *classinfo;
 	NMPropertiesChangedClassInfo *parent_classinfo = NULL;
-	GObjectClass *object_class;
+	GObjectClass *nm_object_class, *dbus_object_class;
 	GType parent;
 
 	classinfo = g_slice_new (NMPropertiesChangedClassInfo);
-	g_type_set_qdata (type, nm_properties_changed_signal_quark (), classinfo);
+	g_type_set_qdata (nm_type, nm_properties_changed_signal_quark (), classinfo);
 
-	object_class = g_type_class_ref (type);
-	object_class->notify = notify;
-	g_type_class_unref (object_class);
+	nm_object_class = g_type_class_ref (nm_type);
+	nm_object_class->notify = notify;
+	g_type_class_unref (nm_object_class);
 
-	classinfo->exported_props = g_hash_table_new (g_str_hash, g_str_equal);
+	classinfo->exported_props = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
 	/* See if we've already added the signal to a parent class. (We can't just use
 	 * g_signal_lookup() here because it prints a warning if the signal doesn't exist!)
 	 */
-	parent = g_type_parent (type);
+	parent = g_type_parent (nm_type);
 	while (parent) {
 		parent_classinfo = g_type_get_qdata (parent, nm_properties_changed_signal_quark ());
 		if (parent_classinfo)
@@ -203,7 +234,7 @@ nm_properties_changed_signal_setup_type (GType type)
 		classinfo->signal_id = parent_classinfo->signal_id;
 	else {
 		classinfo->signal_id = g_signal_new ("properties-changed",
-		                                     type,
+		                                     nm_type,
 		                                     G_SIGNAL_RUN_FIRST,
 		                                     0,
 		                                     NULL, NULL,
@@ -211,31 +242,16 @@ nm_properties_changed_signal_setup_type (GType type)
 		                                     G_TYPE_NONE, 1, DBUS_TYPE_G_MAP_OF_VARIANT);
 	}
 
-	return classinfo;
-}
-
-void
-nm_properties_changed_signal_add_property (GType       type,
-                                           const char *dbus_property_name,
-                                           const char *gobject_property_name)
-{
-	NMPropertiesChangedClassInfo *classinfo;
-	char *hyphen_name, *p;
-
-	classinfo = g_type_get_qdata (type, nm_properties_changed_signal_quark ());
-	if (!classinfo)
-		classinfo = nm_properties_changed_signal_setup_type (type);
-
-	g_hash_table_insert (classinfo->exported_props,
-	                     (char *) gobject_property_name,
-	                     (char *) dbus_property_name);
-
-	hyphen_name = g_strdup (gobject_property_name);
-	for (p = hyphen_name; *p; p++) {
-		if (*p == '_')
-			*p = '-';
+	dbus_object_class = g_type_class_ref (dbus_type);
+	properties = g_object_class_list_properties (dbus_object_class, &n_properties);
+	for (i = 0; i < n_properties; i++) {
+		g_hash_table_insert (classinfo->exported_props,
+		                     g_strdup (properties[i].name),
+		                     dbusify (properties[i].name));
+		g_hash_table_insert (classinfo->exported_props,
+		                     hyphenify (properties[i].name),
+		                     dbusify (properties[i].name));
 	}
-	g_hash_table_insert (classinfo->exported_props,
-	                     hyphen_name,
-	                     (char *) dbus_property_name);
+
+	return classinfo;
 }

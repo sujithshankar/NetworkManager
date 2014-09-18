@@ -60,7 +60,7 @@
 #include "nm-connection-provider.h"
 #include "nm-device-factory.h"
 
-#include "nm-device-ethernet-glue.h"
+#include "nmdbus-device-ethernet.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceEthernet);
@@ -1744,11 +1744,11 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 		                    G_PARAM_READABLE |
 		                    G_PARAM_STATIC_STRINGS));
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_ethernet_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_ETHERNET,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_ETHERNET_ERROR, NULL, NM_TYPE_ETHERNET_ERROR);
+	_nm_dbus_register_error_domain (NM_ETHERNET_ERROR, NM_DBUS_INTERFACE_DEVICE_WIRED, NM_TYPE_ETHERNET_ERROR);
 }
 
 /*************************************************************/

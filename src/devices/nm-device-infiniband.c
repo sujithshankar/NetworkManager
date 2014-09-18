@@ -37,7 +37,7 @@
 #include "nm-platform.h"
 #include "nm-device-factory.h"
 
-#include "nm-device-infiniband-glue.h"
+#include "nmdbus-device-infiniband.h"
 
 
 G_DEFINE_TYPE (NMDeviceInfiniband, nm_device_infiniband, NM_TYPE_DEVICE)
@@ -290,13 +290,12 @@ nm_device_infiniband_class_init (NMDeviceInfinibandClass *klass)
 	parent_class->act_stage1_prepare = act_stage1_prepare;
 	parent_class->ip4_config_pre_commit = ip4_config_pre_commit;
 
-	/* properties */
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_infiniband_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_INFINIBAND,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_INFINIBAND_ERROR, NULL, NM_TYPE_INFINIBAND_ERROR);
+	_nm_dbus_register_error_domain (NM_INFINIBAND_ERROR, NM_DBUS_INTERFACE_DEVICE_INFINIBAND, NM_TYPE_INFINIBAND_ERROR);
 }
 
 /*************************************************************/

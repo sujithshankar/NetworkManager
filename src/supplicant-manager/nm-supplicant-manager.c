@@ -21,13 +21,11 @@
 
 #include <string.h>
 #include <glib.h>
-#include <dbus/dbus.h>
 
 #include "nm-supplicant-manager.h"
 #include "nm-supplicant-interface.h"
 #include "nm-dbus-manager.h"
 #include "nm-logging.h"
-#include "nm-dbus-glib-types.h"
 
 #define NM_SUPPLICANT_MANAGER_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), \
                                               NM_TYPE_SUPPLICANT_MANAGER, \
@@ -43,10 +41,9 @@ enum {
 };
 
 typedef struct {
-	NMDBusManager * dbus_mgr;
 	guint           name_owner_id;
-	DBusGProxy *    proxy;
-	DBusGProxy *    props_proxy;
+	GDBusProxy *    proxy;
+	GDBusProxy *    props_proxy;
 	gboolean        running;
 	GHashTable *    ifaces;
 	gboolean        fast_supported;
@@ -123,35 +120,38 @@ nm_supplicant_manager_iface_release (NMSupplicantManager *self,
 	/* Ask wpa_supplicant to remove this interface */
 	op = nm_supplicant_interface_get_object_path (iface);
 	if (priv->running && priv->proxy && op) {
-		dbus_g_proxy_call_no_reply (priv->proxy, "RemoveInterface",
-			                        DBUS_TYPE_G_OBJECT_PATH, op,
-			                        G_TYPE_INVALID);
+		g_dbus_proxy_call (priv->proxy,
+		                   "RemoveInterface",
+		                   g_variant_new ("(o)", op),
+		                   G_DBUS_CALL_FLAGS_NONE, -1,
+		                   NULL, NULL, NULL);
 	}
 
 	g_hash_table_remove (priv->ifaces, ifname);
 }
 
 static void
-get_capabilities_cb  (DBusGProxy *proxy, DBusGProxyCall *call_id, gpointer user_data)
+get_capabilities_cb  (GObject *proxy, GAsyncResult *result, gpointer user_data)
 {
 	NMSupplicantManager *self = NM_SUPPLICANT_MANAGER (user_data);
 	NMSupplicantManagerPrivate *priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
 	NMSupplicantInterface *iface;
 	GHashTableIter hash_iter;
 	GError *error = NULL;
-	GHashTable *props = NULL;
-	GValue *value;
+	GVariant *ret, *props;
+	char **capabilities, **methods;
 	char **iter;
 
-	if (!dbus_g_proxy_end_call (proxy, call_id, &error,
-	                            DBUS_TYPE_G_MAP_OF_VARIANT, &props,
-	                            G_TYPE_INVALID)) {
-		nm_log_warn (LOGD_CORE, "Unexpected error requesting supplicant properties: (%d) %s",
-		             error ? error->code : -1,
-		             error && error->message ? error->message : "(unknown)");
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &error);
+	if (!ret) {
+		nm_log_warn (LOGD_CORE, "Unexpected error requesting supplicant properties: %s",
+		             error->message);
 		g_clear_error (&error);
 		return;
 	}
+
+	g_variant_get (ret, "(@a{sv})", &props);
+	g_variant_unref (ret);
 
 	/* The supplicant only advertises global capabilities if the following
 	 * commit has been applied:
@@ -163,13 +163,13 @@ get_capabilities_cb  (DBusGProxy *proxy, DBusGProxyCall *call_id, gpointer user_
 	 * dbus: Add global capabilities property
 	 */
 	priv->ap_support = AP_SUPPORT_UNKNOWN;
-	value = g_hash_table_lookup (props, "Capabilities");
-	if (value && G_VALUE_HOLDS (value, G_TYPE_STRV)) {
+	if (g_variant_lookup (props, "Capabilities", "^as", &capabilities)) {
 		priv->ap_support = AP_SUPPORT_NO;
-		for (iter = g_value_get_boxed (value); iter && *iter; iter++) {
+		for (iter = capabilities; iter && *iter; iter++) {
 			if (strcasecmp (*iter, "ap") == 0)
 				priv->ap_support = AP_SUPPORT_YES;
 		}
+		g_strfreev (capabilities);
 	}
 
 	/* Tell all interfaces about results of the AP check */
@@ -183,17 +183,17 @@ get_capabilities_cb  (DBusGProxy *proxy, DBusGProxyCall *call_id, gpointer user_
 
 	/* EAP-FAST */
 	priv->fast_supported = FALSE;
-	value = g_hash_table_lookup (props, "EapMethods");
-	if (value && G_VALUE_HOLDS (value, G_TYPE_STRV)) {
-		for (iter = g_value_get_boxed (value); iter && *iter; iter++) {
+	if (g_variant_lookup (props, "EapMethods", "^as", &methods)) {
+		for (iter = methods; iter && *iter; iter++) {
 			if (strcasecmp (*iter, "fast") == 0)
 				priv->fast_supported = TRUE;
 		}
+		g_strfreev (methods);
 	}
 
 	nm_log_dbg (LOGD_SUPPLICANT, "EAP-FAST is %ssupported", priv->fast_supported ? "" : "not ");
 
-	g_hash_table_unref (props);
+	g_variant_unref (props);
 }
 
 static void
@@ -201,10 +201,12 @@ check_capabilities (NMSupplicantManager *self)
 {
 	NMSupplicantManagerPrivate *priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
 
-	dbus_g_proxy_begin_call (priv->props_proxy, "GetAll",
-	                         get_capabilities_cb, self, NULL,
-	                         G_TYPE_STRING, WPAS_DBUS_INTERFACE,
-	                         G_TYPE_INVALID);
+	g_dbus_proxy_call (priv->props_proxy,
+	                   "GetAll",
+	                   g_variant_new ("(s)", WPAS_DBUS_INTERFACE),
+	                   G_DBUS_CALL_FLAGS_NONE, -1,
+	                   NULL,
+	                   get_capabilities_cb, self);
 }
 
 gboolean
@@ -317,25 +319,34 @@ static void
 nm_supplicant_manager_init (NMSupplicantManager *self)
 {
 	NMSupplicantManagerPrivate *priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
-	DBusGConnection *bus;
+	NMDBusManager *dbus_mgr;
+	GDBusConnection *bus;
 
-	priv->dbus_mgr = nm_dbus_manager_get ();
-	priv->name_owner_id = g_signal_connect (priv->dbus_mgr,
+	dbus_mgr = nm_dbus_manager_get ();
+	priv->name_owner_id = g_signal_connect (dbus_mgr,
 	                                        NM_DBUS_MANAGER_NAME_OWNER_CHANGED,
 	                                        G_CALLBACK (name_owner_changed),
 	                                        self);
-	priv->running = nm_dbus_manager_name_has_owner (priv->dbus_mgr, WPAS_DBUS_SERVICE);
+	priv->running = nm_dbus_manager_name_has_owner (dbus_mgr, WPAS_DBUS_SERVICE);
 
-	bus = nm_dbus_manager_get_connection (priv->dbus_mgr);
-	priv->proxy = dbus_g_proxy_new_for_name (bus,
-	                                         WPAS_DBUS_SERVICE,
-	                                         WPAS_DBUS_PATH,
-	                                         WPAS_DBUS_INTERFACE);
+	bus = nm_dbus_manager_get_connection (dbus_mgr);
+	priv->proxy = g_dbus_proxy_new_sync (bus,
+	                                     G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+	                                         G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+	                                     NULL,
+	                                     WPAS_DBUS_SERVICE,
+	                                     WPAS_DBUS_PATH,
+	                                     WPAS_DBUS_INTERFACE,
+	                                     NULL, NULL);
 
-	priv->props_proxy = dbus_g_proxy_new_for_name (bus,
-	                                               WPAS_DBUS_SERVICE,
-	                                               WPAS_DBUS_PATH,
-	                                               DBUS_INTERFACE_PROPERTIES);
+	priv->props_proxy = g_dbus_proxy_new_sync (bus,
+	                                           G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+	                                               G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+	                                           NULL,
+	                                           WPAS_DBUS_SERVICE,
+	                                           WPAS_DBUS_PATH,
+	                                           "org.freedesktop.DBus.Properties",
+	                                           NULL, NULL);
 
 	priv->ifaces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_object_unref);
 
@@ -375,11 +386,8 @@ dispose (GObject *object)
 	if (priv->die_count_reset_id)
 		g_source_remove (priv->die_count_reset_id);
 
-	if (priv->dbus_mgr) {
-		if (priv->name_owner_id)
-			g_signal_handler_disconnect (priv->dbus_mgr, priv->name_owner_id);
-		priv->dbus_mgr = NULL;
-	}
+	if (priv->name_owner_id)
+		g_signal_handler_disconnect (nm_dbus_manager_get (), priv->name_owner_id);
 
 	g_hash_table_destroy (priv->ifaces);
 

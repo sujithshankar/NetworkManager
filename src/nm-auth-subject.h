@@ -22,10 +22,7 @@
 #define __NETWORKMANAGER_AUTH_SUBJECT_H__
 
 #include <config.h>
-#include <glib.h>
-#include <glib-object.h>
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib.h>
+#include <gio/gio.h>
 
 #if WITH_POLKIT
 #include <polkit/polkit.h>
@@ -51,9 +48,9 @@ typedef struct {
 
 GType nm_auth_subject_get_type (void);
 
-NMAuthSubject *nm_auth_subject_new_from_context (DBusGMethodInvocation *context);
+NMAuthSubject *nm_auth_subject_new_from_context (GDBusMethodInvocation *context);
 
-NMAuthSubject *nm_auth_subject_new_from_message (DBusConnection *connection, DBusMessage *message);
+NMAuthSubject *nm_auth_subject_new_from_message (GDBusConnection *connection, GDBusMessage *message);
 
 NMAuthSubject *nm_auth_subject_new_internal (void);
 

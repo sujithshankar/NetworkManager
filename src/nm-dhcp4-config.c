@@ -24,8 +24,6 @@
 #include "nm-dbus-interface.h"
 #include "nm-dbus-manager.h"
 #include "nm-dhcp4-config.h"
-#include "nm-dhcp4-config-glue.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-utils.h"
 
 

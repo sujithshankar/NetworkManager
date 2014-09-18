@@ -22,10 +22,8 @@
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
-#include <dbus/dbus-glib.h>
 
 #include "nm-logging.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-bluez-manager.h"
 #include "nm-bluez4-manager.h"
 #include "nm-bluez4-adapter.h"

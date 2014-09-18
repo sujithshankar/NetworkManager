@@ -37,7 +37,6 @@
 #include <arpa/inet.h>
 #include <string.h>
 
-#include "nm-dbus-glib-types.h"
 #include "nm-glib-compat.h"
 #include "nm-system-config-interface.h"
 #include "nm-logging.h"

@@ -41,7 +41,7 @@ struct NMAuthChain {
 	GSList *calls;
 	GHashTable *data;
 
-	DBusGMethodInvocation *context;
+	GDBusMethodInvocation *context;
 	char *owner;
 	gulong user_uid;
 	NMAuthSubject *subject;
@@ -109,7 +109,7 @@ static NMAuthChain *
 _auth_chain_new (NMAuthSubject *subject,
                  const char *dbus_sender,
                  gulong user_uid,
-                 DBusGMethodInvocation *context,
+                 GDBusMethodInvocation *context,
                  NMAuthChainResultFunc done_func,
                  gpointer user_data)
 {
@@ -155,7 +155,7 @@ nm_auth_chain_new_dbus_sender (const char *dbus_sender,
 
 /* Creates the NMAuthSubject automatically */
 NMAuthChain *
-nm_auth_chain_new_context (DBusGMethodInvocation *context,
+nm_auth_chain_new_context (GDBusMethodInvocation *context,
                            NMAuthChainResultFunc done_func,
                            gpointer user_data)
 {
@@ -179,7 +179,7 @@ nm_auth_chain_new_context (DBusGMethodInvocation *context,
 /* Requires an NMAuthSubject */
 NMAuthChain *
 nm_auth_chain_new_subject (NMAuthSubject *subject,
-                           DBusGMethodInvocation *context,
+                           GDBusMethodInvocation *context,
                            NMAuthChainResultFunc done_func,
                            gpointer user_data)
 {

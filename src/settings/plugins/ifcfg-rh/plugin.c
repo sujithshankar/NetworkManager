@@ -33,10 +33,6 @@
 #include <glib/gi18n.h>
 #include <gio/gio.h>
 
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib.h>
-#include <dbus/dbus-glib-lowlevel.h>
-
 #if HAVE_SELINUX
 #include <selinux/selinux.h>
 #endif
@@ -44,13 +40,13 @@
 #include <nm-setting-connection.h>
 
 #include "common.h"
-#include "nm-dbus-glib-types.h"
 #include "plugin.h"
 #include "nm-system-config-interface.h"
 #include "nm-settings-error.h"
 #include "nm-config.h"
 #include "nm-logging.h"
 #include "NetworkManagerUtils.h"
+#include "nm-dbus-utils.h"
 
 #include "nm-ifcfg-connection.h"
 #include "nm-inotify-helper.h"
@@ -68,7 +64,6 @@ static gboolean impl_ifcfgrh_get_ifcfg_details (SCPluginIfcfg *plugin,
                                                 const char **out_path,
                                                 GError **error);
 
-#include "nm-ifcfg-rh-glue.h"
 
 static void connection_new_or_changed (SCPluginIfcfg *plugin,
                                        const char *path,
@@ -97,7 +92,7 @@ typedef struct {
 	GFileMonitor *ifcfg_monitor;
 	guint ifcfg_monitor_id;
 
-	DBusGConnection *bus;
+	GDBusConnection *bus;
 } SCPluginIfcfgPrivate;
 
 
@@ -857,29 +852,18 @@ sc_plugin_ifcfg_init (SCPluginIfcfg *plugin)
 
 	priv->hostname = plugin_get_hostname (plugin);
 
-	priv->bus = dbus_g_bus_get (DBUS_BUS_SYSTEM, &error);
+	priv->bus = g_bus_bus_get_sync (G_BUS_SYSTEM, NULL, &error);
 	if (!priv->bus) {
 		nm_log_warn (LOGD_SETTINGS, "Couldn't connect to D-Bus: %s", error->message);
 		g_clear_error (&error);
 	} else {
-		DBusConnection *tmp;
-		DBusGProxy *proxy;
 		int result;
 
-		tmp = dbus_g_connection_get_connection (priv->bus);
-		dbus_connection_set_exit_on_disconnect (tmp, FALSE);
-
-		proxy = dbus_g_proxy_new_for_name (priv->bus,
-		                                   "org.freedesktop.DBus",
-		                                   "/org/freedesktop/DBus",
-		                                   "org.freedesktop.DBus");
-
-		if (!dbus_g_proxy_call (proxy, "RequestName", &error,
-		                        G_TYPE_STRING, DBUS_SERVICE_NAME,
-		                        G_TYPE_UINT, DBUS_NAME_FLAG_DO_NOT_QUEUE,
-		                        G_TYPE_INVALID,
-		                        G_TYPE_UINT, &result,
-		                        G_TYPE_INVALID)) {
+		result = nm_dbus_request_name (priv->bus,
+		                               DBUS_SERVICE_NAME,
+		                               DBUS_NAME_FLAG_DO_NOT_QUEUE,
+		                               NULL, &error);
+		if (!result) {
 			nm_log_warn (LOGD_SETTINGS, "Couldn't acquire D-Bus service: %s", error->message);
 			g_clear_error (&error);
 		} else if (result != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
@@ -888,12 +872,8 @@ sc_plugin_ifcfg_init (SCPluginIfcfg *plugin)
 			success = TRUE;
 	}
 
-	if (!success) {
-		if (priv->bus) {
-			dbus_g_connection_unref (priv->bus);
-			priv->bus = NULL;
-		}
-	}
+	if (!success)
+		g_clear_object (&priv->bus);
 }
 
 static void
@@ -903,10 +883,7 @@ dispose (GObject *object)
 	SCPluginIfcfgPrivate *priv = SC_PLUGIN_IFCFG_GET_PRIVATE (plugin);
 	NMInotifyHelper *ih;
 
-	if (priv->bus) {
-		dbus_g_connection_unref (priv->bus);
-		priv->bus = NULL;
-	}
+	g_clear_object (&priv->bus);
 
 	if (priv->ih_event_id) {
 		ih = nm_inotify_helper_get ();

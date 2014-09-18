@@ -20,7 +20,6 @@
 
 #include <string.h>
 #include <glib.h>
-#include <dbus/dbus.h>
 
 #include "nm-firewall-manager.h"
 #include "nm-dbus-manager.h"
@@ -42,7 +41,7 @@ enum {
 typedef struct {
 	NMDBusManager * dbus_mgr;
 	guint           name_owner_id;
-	DBusGProxy *    proxy;
+	GDBusProxy *    proxy;
 	gboolean        running;
 } NMFirewallManagerPrivate;
 
@@ -62,6 +61,7 @@ typedef struct {
 	gpointer user_data;
 	guint id;
 	gboolean completed;
+	GCancellable *cancellable;
 } CBInfo;
 
 static void
@@ -73,6 +73,7 @@ cb_info_free (CBInfo *info)
 		nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone call cancelled [%u]", info->iface, info->id);
 
 	g_free (info->iface);
+	g_object_unref (info->cancellable);
 	g_free (info);
 }
 
@@ -88,6 +89,7 @@ _cb_info_create (const char *iface, FwAddToZoneFunc callback, gpointer user_data
 	info->id = id;
 	info->iface = g_strdup (iface);
 	info->completed = FALSE;
+	info->cancellable = g_cancellable_new ();
 	info->callback = callback;
 	info->user_data = user_data;
 
@@ -95,33 +97,36 @@ _cb_info_create (const char *iface, FwAddToZoneFunc callback, gpointer user_data
 }
 
 static void
-add_or_change_cb (DBusGProxy *proxy, DBusGProxyCall *call_id, gpointer user_data)
+add_or_change_cb (GObject *proxy, GAsyncResult *result, gpointer user_data)
 {
 	CBInfo *info = user_data;
 	GError *error = NULL;
-	char *zone = NULL;
+	GVariant *ret;
 
-	if (!dbus_g_proxy_end_call (proxy, call_id, &error,
-	                            G_TYPE_STRING, &zone,
-	                            G_TYPE_INVALID)) {
-		g_assert (error);
-		if (g_strcmp0 (error->message, "ZONE_ALREADY_SET") != 0) {
+	if (g_cancellable_is_cancelled (info->cancellable)) {
+		cb_info_free (info);
+		return;
+	}
+
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &error);
+	if (ret) {
+		nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone add/change succeeded [%u]",
+		            info->iface, info->id);
+		g_variant_unref (ret);
+	} else {
+		if (!strstr (error->message, "ZONE_ALREADY_SET")) {
 			nm_log_warn (LOGD_FIREWALL, "(%s) firewall zone add/change failed [%u]: (%d) %s",
 			             info->iface, info->id, error->code, error->message);
 		} else {
 			nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone add/change failed [%u]: (%d) %s",
 			            info->iface, info->id, error->code, error->message);
 		}
-	} else {
-		nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone add/change succeeded [%u]",
-		            info->iface, info->id);
+		g_error_free (error);
 	}
 
 	info->callback (error, info->user_data);
-
 	info->completed = TRUE;
-	g_free (zone);
-	g_clear_error (&error);
+	cb_info_free (info);
 }
 
 gpointer
@@ -145,44 +150,46 @@ nm_firewall_manager_add_or_change_zone (NMFirewallManager *self,
 
 	nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone %s -> %s%s%s [%u]", iface, add ? "add" : "change",
 	                           zone?"\"":"", zone ? zone : "default", zone?"\"":"", info->id);
-	return dbus_g_proxy_begin_call_with_timeout (priv->proxy,
-	                                             add ? "addInterface" : "changeZone",
-	                                             add_or_change_cb,
-	                                             info,
-	                                             (GDestroyNotify) cb_info_free,
-	                                             10000,      /* timeout */
-	                                             G_TYPE_STRING, zone ? zone : "",
-	                                             G_TYPE_STRING, iface,
-	                                             G_TYPE_INVALID);
+	g_dbus_proxy_call (priv->proxy,
+	                   add ? "addInterface" : "changeZone",
+	                   g_variant_new ("(ss)", zone ? zone : "", iface),
+	                   G_DBUS_CALL_FLAGS_NONE, 10000,
+	                   info->cancellable,
+	                   add_or_change_cb, info);
+	return info;
 }
 
 static void
-remove_cb (DBusGProxy *proxy, DBusGProxyCall *call_id, gpointer user_data)
+remove_cb (GObject *proxy, GAsyncResult *result, gpointer user_data)
 {
 	CBInfo *info = user_data;
 	GError *error = NULL;
-	char * zone = NULL;
+	GVariant *ret;
 
-	if (!dbus_g_proxy_end_call (proxy, call_id, &error,
-	                            G_TYPE_STRING, &zone,
-	                            G_TYPE_INVALID)) {
-		g_assert (error);
+	if (g_cancellable_is_cancelled (info->cancellable)) {
+		cb_info_free (info);
+		return;
+	}
+
+	ret = g_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, &error);
+	if (ret) {
+		nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone remove succeeded [%u]",
+		            info->iface, info->id);
+		g_variant_unref (ret);
+	} else {
 		/* ignore UNKNOWN_INTERFACE errors */
-		if (error->message && !strstr (error->message, "UNKNOWN_INTERFACE")) {
+		if (!strstr (error->message, "UNKNOWN_INTERFACE")) {
 			nm_log_warn (LOGD_FIREWALL, "(%s) firewall zone remove failed [%u]: (%d) %s",
 			             info->iface, info->id, error->code, error->message);
 		} else {
 			nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone remove failed [%u]: (%d) %s",
 			            info->iface, info->id, error->code, error->message);
 		}
-	} else {
-		nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone remove succeeded [%u]",
-		            info->iface, info->id);
+		g_error_free (error);
 	}
 
 	info->completed = TRUE;
-	g_free (zone);
-	g_clear_error (&error);
+	cb_info_free (info);
 }
 
 gpointer
@@ -202,22 +209,23 @@ nm_firewall_manager_remove_from_zone (NMFirewallManager *self,
 
 	nm_log_dbg (LOGD_FIREWALL, "(%s) firewall zone remove -> %s%s%s [%u]", iface,
 	                           zone?"\"":"", zone ? zone : "*", zone?"\"":"", info->id);
-	return dbus_g_proxy_begin_call_with_timeout (priv->proxy,
-	                                             "removeInterface",
-	                                             remove_cb,
-	                                             info,
-	                                             (GDestroyNotify) cb_info_free,
-	                                             10000,      /* timeout */
-	                                             G_TYPE_STRING, zone ? zone : "",
-	                                             G_TYPE_STRING, iface,
-	                                             G_TYPE_INVALID);
+	g_dbus_proxy_call (priv->proxy,
+	                   "removeInterface",
+	                   g_variant_new ("(ss)", zone ? zone : "", iface),
+	                   G_DBUS_CALL_FLAGS_NONE, 10000,
+	                   info->cancellable,
+	                   remove_cb, info);
+	return info;
 }
 
-void nm_firewall_manager_cancel_call (NMFirewallManager *self, gpointer call)
+void
+nm_firewall_manager_cancel_call (NMFirewallManager *self, gpointer call)
 {
+	CBInfo *info = call;
+
 	g_return_if_fail (NM_IS_FIREWALL_MANAGER (self));
-	dbus_g_proxy_cancel_call (NM_FIREWALL_MANAGER_GET_PRIVATE (self)->proxy,
-	                          (DBusGProxyCall *) call);
+
+	g_cancellable_cancel (info->cancellable);
 }
 
 static void
@@ -275,7 +283,7 @@ static void
 nm_firewall_manager_init (NMFirewallManager * self)
 {
 	NMFirewallManagerPrivate *priv = NM_FIREWALL_MANAGER_GET_PRIVATE (self);
-	DBusGConnection *bus;
+	GDBusConnection *bus;
 
 	priv->dbus_mgr = g_object_ref (nm_dbus_manager_get ());
 	priv->name_owner_id = g_signal_connect (priv->dbus_mgr,
@@ -286,10 +294,14 @@ nm_firewall_manager_init (NMFirewallManager * self)
 	nm_log_dbg (LOGD_FIREWALL, "firewall %s running", priv->running ? "is" : "is not" );
 
 	bus = nm_dbus_manager_get_connection (priv->dbus_mgr);
-	priv->proxy = dbus_g_proxy_new_for_name (bus,
-	                                         FIREWALL_DBUS_SERVICE,
-	                                         FIREWALL_DBUS_PATH,
-	                                         FIREWALL_DBUS_INTERFACE_ZONE);
+	priv->proxy = g_dbus_proxy_new_sync (bus,
+	                                     G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+	                                         G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+	                                     NULL,
+	                                     FIREWALL_DBUS_SERVICE,
+	                                     FIREWALL_DBUS_PATH,
+	                                     FIREWALL_DBUS_INTERFACE_ZONE,
+	                                     NULL, NULL);
 }
 
 static void

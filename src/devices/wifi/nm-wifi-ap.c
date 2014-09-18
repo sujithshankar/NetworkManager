@@ -32,7 +32,7 @@
 #include "nm-setting-wireless.h"
 #include "nm-glib-compat.h"
 
-#include "nm-access-point-glue.h"
+#include "nmdbus-access-point.h"
 
 /*
  * Encapsulates Access Point information
@@ -387,104 +387,107 @@ security_from_dict (GHashTable *security)
 	return flags;
 }
 
-static void
-foreach_property_cb (gpointer key, gpointer value, gpointer user_data)
-{
-	GValue *variant = (GValue *) value;
-	NMAccessPoint *ap = (NMAccessPoint *) user_data;
-
-	if (G_VALUE_HOLDS_BOXED (variant)) {
-		GArray *array = g_value_get_boxed (variant);
-
-		if (!strcmp (key, "SSID")) {
-			guint32 len = MIN (32, array->len);
-
-			/* Stupid ieee80211 layer uses <hidden> */
-			if (((len == 8) || (len == 9))
-				&& (memcmp (array->data, "<hidden>", 8) == 0))
-				return;
-
-			if (nm_utils_is_empty_ssid ((const guint8 *) array->data, len))
-				return;
-
-			nm_ap_set_ssid (ap, (const guint8 *) array->data, len);
-		} else if (!strcmp (key, "BSSID")) {
-			char *addr;
-
-			if (array->len != ETH_ALEN)
-				return;
-			addr = nm_utils_hwaddr_ntoa (array->data, array->len);
-			nm_ap_set_address (ap, addr);
-			g_free (addr);
-		} else if (!strcmp (key, "Rates")) {
-			guint32 maxrate = 0;
-			int i;
-
-			/* Find the max AP rate */
-			for (i = 0; i < array->len; i++) {
-				guint32 r = g_array_index (array, guint32, i);
-
-				if (r > maxrate) {
-					maxrate = r;
-					nm_ap_set_max_bitrate (ap, r / 1000);
-				}
-			}
-		} else if (!strcmp (key, "WPA")) {
-			NM80211ApSecurityFlags flags = nm_ap_get_wpa_flags (ap);
-
-			flags |= security_from_dict (g_value_get_boxed (variant));
-			nm_ap_set_wpa_flags (ap, flags);
-		} else if (!strcmp (key, "RSN")) {
-			NM80211ApSecurityFlags flags = nm_ap_get_rsn_flags (ap);
-
-			flags |= security_from_dict (g_value_get_boxed (variant));
-			nm_ap_set_rsn_flags (ap, flags);
-		}
-	} else if (G_VALUE_HOLDS_UINT (variant)) {
-		guint32 val = g_value_get_uint (variant);
-
-		if (!strcmp (key, "Frequency"))
-			nm_ap_set_freq (ap, val);
-	} else if (G_VALUE_HOLDS_INT (variant)) {
-		gint val = g_value_get_int (variant);
-
-		if (!strcmp (key, "Signal"))
-			nm_ap_set_strength (ap, nm_ap_utils_level_to_quality (val));
-	} else if (G_VALUE_HOLDS_STRING (variant)) {
-		const char *val = g_value_get_string (variant);
-
-		if (val && !strcmp (key, "Mode")) {
-			if (strcmp (val, "infrastructure") == 0)
-				nm_ap_set_mode (ap, NM_802_11_MODE_INFRA);
-			else if (strcmp (val, "ad-hoc") == 0)
-				nm_ap_set_mode (ap, NM_802_11_MODE_ADHOC);
-		}
-	} else if (G_VALUE_HOLDS_BOOLEAN (variant)) {
-		gboolean val = g_value_get_boolean (variant);
-
-		if (strcmp (key, "Privacy") == 0) {
-			if (val) {
-				NM80211ApFlags flags = nm_ap_get_flags (ap);
-				nm_ap_set_flags (ap, flags | NM_802_11_AP_FLAGS_PRIVACY);
-			}
-		}
-	}
-}
-
 NMAccessPoint *
-nm_ap_new_from_properties (const char *supplicant_path, GHashTable *properties)
+nm_ap_new_from_properties (const char *supplicant_path, GVariant *properties)
 {
 	NMAccessPoint *ap;
 	const char *addr;
 	const char bad_bssid1[ETH_ALEN] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 	const char bad_bssid2[ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+	GVariantIter iter;
+	GVariant *variant;
 
 	g_return_val_if_fail (properties != NULL, NULL);
 
 	ap = nm_ap_new ();
 
 	g_object_freeze_notify (G_OBJECT (ap));
-	g_hash_table_foreach (properties, foreach_property_cb, ap);
+
+	g_variant_iter_new (&iter, properties);
+	while (g_variant_iter_next (&iter, "{&sv}", &key, &variant)) {
+		if (!strcmp (key, "SSID")) {
+			const guint8 *array;
+			gsize length;
+
+			array = g_variant_get_fixed_array (variant, &length, 1);
+			length = MIN (32, length);
+
+			/* Stupid ieee80211 layer uses <hidden> */
+			if (   ((length == 8) || (length == 9))
+			    && (memcmp (array, "<hidden>", 8) == 0))
+				goto next;
+
+			if (nm_utils_is_empty_ssid (array, length))
+				goto next;
+
+			nm_ap_set_ssid (ap, array, length);
+
+		} else if (!strcmp (key, "BSSID")) {
+			const guint8 *array;
+			gsize length;
+			char *addr;
+
+			array = g_variant_get_fixed_array (variant, &length, 1);
+			if (length != ETH_ALEN)
+				goto next;
+
+			addr = nm_utils_hwaddr_ntoa (array, length);
+			nm_ap_set_address (ap, addr);
+			g_free (addr);
+
+		} else if (!strcmp (key, "Rates")) {
+			const guint32 *rates;
+			gsize length;
+			guint32 maxrate = 0;
+			int i;
+
+			rates = g_variant_get_fixed_array (variant, &length, sizeof (guint32));
+
+			/* Find the max AP rate */
+			for (i = 0; i < length; i++) {
+				if (rates[i] > maxrate) {
+					maxrate = rates[i];
+					nm_ap_set_max_bitrate (ap, rates[i] / 1000);
+				}
+			}
+
+		} else if (!strcmp (key, "WPA")) {
+			NM80211ApSecurityFlags flags = nm_ap_get_wpa_flags (ap);
+
+			flags |= security_from_dict (variant);
+			nm_ap_set_wpa_flags (ap, flags);
+
+		} else if (!strcmp (key, "RSN")) {
+			NM80211ApSecurityFlags flags = nm_ap_get_rsn_flags (ap);
+
+			flags |= security_from_dict (variant);
+			nm_ap_set_rsn_flags (ap, flags);
+
+		} else if (!strcmp (key, "Frequency")) {
+			nm_ap_set_freq (ap, g_variant_get_uint (variant));
+
+		} else if (!strcmp (key, "Signal")) {
+			nm_ap_set_strength (ap, g_variant_get_int (variant));
+
+		} else if (!strcmp (key, "Mode")) {
+			const char *val = g_variant_get_string (variant);
+
+			if (strcmp (val, "infrastructure") == 0)
+				nm_ap_set_mode (ap, NM_802_11_MODE_INFRA);
+			else if (strcmp (val, "ad-hoc") == 0)
+				nm_ap_set_mode (ap, NM_802_11_MODE_ADHOC);
+		} else if (strcmp (key, "Privacy") == 0) {
+			gboolean val = g_variant_get_boolean (variant);
+				
+			if (val) {
+				NM80211ApFlags flags = nm_ap_get_flags (ap);
+				nm_ap_set_flags (ap, flags | NM_802_11_AP_FLAGS_PRIVACY);
+			}
+		}
+
+	next:
+		g_variant_unref (variant);
+	}
 
 	nm_ap_set_supplicant_path (ap, supplicant_path);
 

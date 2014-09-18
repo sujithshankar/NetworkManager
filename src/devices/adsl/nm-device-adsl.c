@@ -46,7 +46,7 @@
 #include "nm-setting-adsl.h"
 #include "nm-utils.h"
 
-#include "nm-device-adsl-glue.h"
+#include "nmdbus-device-adsl.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF (NMDeviceAdsl);

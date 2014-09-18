@@ -41,7 +41,7 @@
 #include "nm-device-factory.h"
 #include "nm-manager.h"
 
-#include "nm-device-vlan-glue.h"
+#include "nmdbus-device-vlan.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceVlan);
@@ -588,11 +588,11 @@ nm_device_vlan_class_init (NMDeviceVlanClass *klass)
 		                    G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 		                    G_PARAM_STATIC_STRINGS));
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_vlan_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE_VLAN,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_VLAN_ERROR, NULL, NM_TYPE_VLAN_ERROR);
+	_nm_dbus_register_error_domain (NM_VLAN_ERROR, NM_DBUS_INTERFACE_DEVICE_VLAN, NM_TYPE_VLAN_ERROR);
 }
 
 /*************************************************************/

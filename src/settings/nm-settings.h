@@ -29,6 +29,7 @@
 #include <nm-connection.h>
 
 #include "nm-types.h"
+#include "nm-object.h"
 
 #define NM_TYPE_SETTINGS            (nm_settings_get_type ())
 #define NM_SETTINGS(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_SETTINGS, NMSettings))
@@ -50,11 +51,11 @@
 #define NM_SETTINGS_SIGNAL_AGENT_REGISTERED              "agent-registered"
 
 struct _NMSettings {
-	GObject parent_instance;
+	NMObject parent_instance;
 };
 
 typedef struct {
-	GObjectClass parent_class;
+	NMObjectClass parent_class;
 
 	/* Signals */
 	void (*properties_changed) (NMSettings *self, GHashTable *properties);
@@ -85,13 +86,13 @@ void nm_settings_for_each_connection (NMSettings *settings,
 typedef void (*NMSettingsAddCallback) (NMSettings *settings,
                                        NMSettingsConnection *connection,
                                        GError *error,
-                                       DBusGMethodInvocation *context,
+                                       GDBusMethodInvocation *context,
                                        gpointer user_data);
 
 void nm_settings_add_connection_dbus (NMSettings *self,
                                       NMConnection *connection,
                                       gboolean save_to_disk,
-                                      DBusGMethodInvocation *context,
+                                      GDBusMethodInvocation *context,
                                       NMSettingsAddCallback callback,
                                       gpointer user_data);
 

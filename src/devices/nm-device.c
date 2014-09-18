@@ -22,7 +22,6 @@
 #include <config.h>
 #include <glib.h>
 #include <glib/gi18n.h>
-#include <dbus/dbus.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
@@ -67,7 +66,6 @@
 #include "nm-connection-provider.h"
 #include "nm-posix-signals.h"
 #include "nm-manager-auth.h"
-#include "nm-dbus-glib-types.h"
 #include "nm-dispatcher.h"
 #include "nm-config.h"
 #include "nm-dns-manager.h"
@@ -75,10 +73,12 @@
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF (NMDevice);
 
-static void impl_device_disconnect (NMDevice *self, DBusGMethodInvocation *context);
-static void impl_device_delete     (NMDevice *self, DBusGMethodInvocation *context);
+#include "nmdbus-device.h"
 
-#include "nm-device-glue.h"
+static gboolean impl_device_disconnect (NMDevice *device,
+                                        GDBusMethodInvocation *context);
+static gboolean impl_device_delete     (NMDevice *device,
+                                        GDBusMethodInvocation *context);
 
 G_DEFINE_ABSTRACT_TYPE (NMDevice, nm_device, G_TYPE_OBJECT)
 
@@ -255,7 +255,7 @@ typedef struct {
 	gulong            dnsmasq_state_id;
 
 	/* Firewall */
-	DBusGProxyCall    *fw_call;
+	gpointer *fw_call;
 
 	/* avahi-autoipd stuff */
 	GPid    aipd_pid;
@@ -478,7 +478,8 @@ nm_device_dbus_export (NMDevice *self)
 
 	priv->path = g_strdup_printf ("/org/freedesktop/NetworkManager/Devices/%d", devcount++);
 	_LOGI (LOGD_DEVICE, "exported as %s", priv->path);
-	nm_dbus_manager_register_object (nm_dbus_manager_get (), priv->path, self);
+
+	nm_object_export (NM_OBJECT (self), priv->path);
 }
 
 const char *
@@ -4969,7 +4970,7 @@ delete_on_deactivate_check_and_schedule (NMDevice *self, int ifindex)
 
 static void
 disconnect_cb (NMDevice *self,
-               DBusGMethodInvocation *context,
+               GDBusMethodInvocation *context,
                GError *error,
                gpointer user_data)
 {
@@ -4977,7 +4978,7 @@ disconnect_cb (NMDevice *self,
 	GError *local = NULL;
 
 	if (error) {
-		dbus_g_method_return_error (context, error);
+		g_dbus_method_invocation_return_gerror (context, error);
 		return;
 	}
 
@@ -4986,20 +4987,20 @@ disconnect_cb (NMDevice *self,
 		local = g_error_new_literal (NM_DEVICE_ERROR,
 		                             NM_DEVICE_ERROR_NOT_ACTIVE,
 		                             "Device is not active");
-		dbus_g_method_return_error (context, local);
-		g_error_free (local);
+		g_dbus_method_invocation_take_error (context, local);
 	} else {
 		priv->autoconnect = FALSE;
 
 		nm_device_state_changed (self,
 		                         NM_DEVICE_STATE_DEACTIVATING,
 		                         NM_DEVICE_STATE_REASON_USER_REQUESTED);
-		dbus_g_method_return (context);
+		g_dbus_method_invocation_return_value (context, NULL);
 	}
 }
 
-static void
-impl_device_disconnect (NMDevice *self, DBusGMethodInvocation *context)
+static gboolean
+impl_device_disconnect (NMDevice *self,
+                        GDBusMethodInvocation *context)
 {
 	NMConnection *connection;
 	GError *error = NULL;
@@ -5008,9 +5009,8 @@ impl_device_disconnect (NMDevice *self, DBusGMethodInvocation *context)
 		error = g_error_new_literal (NM_DEVICE_ERROR,
 		                             NM_DEVICE_ERROR_NOT_ACTIVE,
 		                             "This device is not active");
-		dbus_g_method_return_error (context, error);
-		g_error_free (error);
-		return;
+		g_dbus_method_invocation_take_error (context, error);
+		return TRUE;
 	}
 
 	connection = nm_device_get_connection (self);
@@ -5024,26 +5024,28 @@ impl_device_disconnect (NMDevice *self, DBusGMethodInvocation *context)
 	               TRUE,
 	               disconnect_cb,
 	               NULL);
+	return TRUE;
 }
 
 static void
 delete_cb (NMDevice *self,
-           DBusGMethodInvocation *context,
+           GDBusMethodInvocation *context,
            GError *error,
            gpointer user_data)
 {
 	if (error) {
-		dbus_g_method_return_error (context, error);
+		g_dbus_method_invocation_return_gerror (context, error);
 		return;
 	}
 
 	/* Authorized */
 	nm_platform_link_delete (nm_device_get_ifindex (self));
-	dbus_g_method_return (context);
+	g_dbus_method_invocation_return_value (context, NULL);
 }
 
-static void
-impl_device_delete (NMDevice *self, DBusGMethodInvocation *context)
+static gboolean
+impl_device_delete (NMDevice *self,
+                    GDBusMethodInvocation *context)
 {
 	GError *error = NULL;
 
@@ -5051,9 +5053,8 @@ impl_device_delete (NMDevice *self, DBusGMethodInvocation *context)
 		error = g_error_new_literal (NM_DEVICE_ERROR,
 		                             NM_DEVICE_ERROR_NOT_SOFTWARE,
 		                             "This device is not a software device");
-		dbus_g_method_return_error (context, error);
-		g_error_free (error);
-		return;
+		g_dbus_method_invocation_take_error (context, error);
+		return TRUE;
 	}
 
 	/* Ask the manager to authenticate this request for us */
@@ -5064,6 +5065,7 @@ impl_device_delete (NMDevice *self, DBusGMethodInvocation *context)
 	               TRUE,
 	               delete_cb,
 	               NULL);
+	return TRUE;
 }
 
 static void
@@ -6821,7 +6823,10 @@ _set_state_full (NMDevice *self,
 
 	g_object_notify (G_OBJECT (self), NM_DEVICE_STATE);
 	g_object_notify (G_OBJECT (self), NM_DEVICE_STATE_REASON);
-	g_signal_emit_by_name (self, "state-changed", state, old_state, reason);
+	g_signal_emit (self, signals[STATE_CHANGED], state, old_state, reason);
+	nm_object_emit_dbus_signal (NM_OBJECT (self),
+	                            "StateChanged",
+	                            state, old_state, reason);
 
 	/* Post-process the event after internal notification */
 
@@ -7567,8 +7572,6 @@ set_property (GObject *object, guint prop_id,
 	}
 }
 
-#define DBUS_TYPE_STATE_REASON_STRUCT (dbus_g_type_get_struct ("GValueArray", G_TYPE_UINT, G_TYPE_UINT, G_TYPE_INVALID))
-
 static void
 get_property (GObject *object, guint prop_id,
 			  GValue *value, GParamSpec *pspec)
@@ -7619,39 +7622,39 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_IP4_CONFIG:
 		if (ip_config_valid (priv->state) && priv->ip4_config)
-			g_value_set_boxed (value, nm_ip4_config_get_dbus_path (priv->ip4_config));
+			g_value_set_string (value, nm_ip4_config_get_dbus_path (priv->ip4_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_DHCP4_CONFIG:
 		if (ip_config_valid (priv->state) && priv->dhcp4_config)
-			g_value_set_boxed (value, nm_dhcp4_config_get_dbus_path (priv->dhcp4_config));
+			g_value_set_string (value, nm_dhcp4_config_get_dbus_path (priv->dhcp4_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_IP6_CONFIG:
 		if (ip_config_valid (priv->state) && priv->ip6_config)
-			g_value_set_boxed (value, nm_ip6_config_get_dbus_path (priv->ip6_config));
+			g_value_set_string (value, nm_ip6_config_get_dbus_path (priv->ip6_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_DHCP6_CONFIG:
 		if (ip_config_valid (priv->state) && priv->dhcp6_config)
-			g_value_set_boxed (value, nm_dhcp6_config_get_dbus_path (priv->dhcp6_config));
+			g_value_set_string (value, nm_dhcp6_config_get_dbus_path (priv->dhcp6_config));
 		else
-			g_value_set_boxed (value, "/");
+			g_value_set_string (value, "/");
 		break;
 	case PROP_STATE:
 		g_value_set_uint (value, priv->state);
 		break;
 	case PROP_STATE_REASON:
-		g_value_take_boxed (value, dbus_g_type_specialized_construct (DBUS_TYPE_STATE_REASON_STRUCT));
-		dbus_g_type_struct_set (value, 0, priv->state, 1, priv->state_reason, G_MAXUINT);
+		g_value_take_variant (value,
+		                      g_variant_new ("(uu)", priv->state, priv->state_reason));
 		break;
 	case PROP_ACTIVE_CONNECTION:
 		if (priv->act_request)
 			ac_path = nm_active_connection_get_path (NM_ACTIVE_CONNECTION (priv->act_request));
-		g_value_set_boxed (value, ac_path ? ac_path : "/");
+		g_value_set_string (value, ac_path ? ac_path : "/");
 		break;
 	case PROP_DEVICE_TYPE:
 		g_value_set_uint (value, priv->type);
@@ -7676,7 +7679,8 @@ get_property (GObject *object, guint prop_id,
 		g_hash_table_iter_init (&iter, priv->available_connections);
 		while (g_hash_table_iter_next (&iter, (gpointer) &connection, NULL))
 			g_ptr_array_add (array, g_strdup (nm_connection_get_path (connection)));
-		g_value_take_boxed (value, array);
+		g_ptr_array_add (array, NULL);
+		g_value_take_boxed (value, (char **) g_ptr_array_free (array, FALSE));
 		break;
 	case PROP_PHYSICAL_PORT_ID:
 		g_value_set_string (value, priv->physical_port_id);
@@ -7814,31 +7818,31 @@ nm_device_class_init (NMDeviceClass *klass)
 
 	g_object_class_install_property
 		(object_class, PROP_IP4_CONFIG,
-		 g_param_spec_boxed (NM_DEVICE_IP4_CONFIG, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READWRITE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_IP4_CONFIG, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_DHCP4_CONFIG,
-		 g_param_spec_boxed (NM_DEVICE_DHCP4_CONFIG, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READWRITE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_DHCP4_CONFIG, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_IP6_CONFIG,
-		 g_param_spec_boxed (NM_DEVICE_IP6_CONFIG, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READWRITE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_IP6_CONFIG, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_DHCP6_CONFIG,
-		 g_param_spec_boxed (NM_DEVICE_DHCP6_CONFIG, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READWRITE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_DHCP6_CONFIG, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_STATE,
@@ -7849,17 +7853,18 @@ nm_device_class_init (NMDeviceClass *klass)
 
 	g_object_class_install_property
 		(object_class, PROP_STATE_REASON,
-		 g_param_spec_boxed (NM_DEVICE_STATE_REASON, "", "",
-		                     DBUS_TYPE_STATE_REASON_STRUCT,
-		                     G_PARAM_READABLE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_variant (NM_DEVICE_STATE_REASON, "", "",
+		                       G_VARIANT_TYPE ("(uu)"),
+		                       NULL,
+		                       G_PARAM_READABLE |
+		                       G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_ACTIVE_CONNECTION,
-		 g_param_spec_boxed (NM_DEVICE_ACTIVE_CONNECTION, "", "",
-		                     DBUS_TYPE_G_OBJECT_PATH,
-		                     G_PARAM_READABLE |
-		                     G_PARAM_STATIC_STRINGS));
+		 g_param_spec_string (NM_DEVICE_ACTIVE_CONNECTION, "", "",
+		                      NULL,
+		                      G_PARAM_READABLE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property
 		(object_class, PROP_DEVICE_TYPE,
@@ -7915,7 +7920,7 @@ nm_device_class_init (NMDeviceClass *klass)
 	g_object_class_install_property
 		(object_class, PROP_AVAILABLE_CONNECTIONS,
 		 g_param_spec_boxed (NM_DEVICE_AVAILABLE_CONNECTIONS, "", "",
-		                     DBUS_TYPE_G_ARRAY_OF_OBJECT_PATH,
+		                     G_TYPE_STRV,
 		                     G_PARAM_READABLE |
 		                     G_PARAM_STATIC_STRINGS));
 
@@ -8015,10 +8020,11 @@ nm_device_class_init (NMDeviceClass *klass)
 		              0, NULL, NULL, NULL,
 		              G_TYPE_NONE, 0);
 
-	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
-	                                        G_TYPE_FROM_CLASS (klass),
-	                                        &dbus_glib_nm_device_object_info);
+	nm_object_class_add_interface (NM_OBJECT_CLASS (klass),
+	                               NMDBUS_TYPE_DEVICE,
+	                               "Disconnect", impl_device_disconnect,
+	                               "Delete", impl_device_delete,
+	                               NULL);
 
-	dbus_g_error_domain_register (NM_DEVICE_ERROR, NULL, NM_TYPE_DEVICE_ERROR);
+	_nm_dbus_register_error_domain (NM_DEVICE_ERROR, NM_DBUS_INTERFACE_DEVICE, NM_TYPE_DEVICE_ERROR);
 }
-

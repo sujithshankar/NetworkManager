@@ -303,6 +303,6 @@ nm_vpn_manager_class_init (NMVpnManagerClass *manager_class)
 	/* virtual methods */
 	object_class->dispose = dispose;
 
-	dbus_g_error_domain_register (NM_VPN_MANAGER_ERROR, NULL, NM_TYPE_VPN_MANAGER_ERROR);
+	_nm_dbus_register_error_domain (NM_VPN_MANAGER_ERROR, NULL, NM_TYPE_VPN_MANAGER_ERROR);
 }
 

@@ -28,7 +28,6 @@ gtk-doc.make
 *.pc
 cscope.*out
 valgrind-*.log
-*-glue.h
 
 /ABOUT-NLS
 /COPYING

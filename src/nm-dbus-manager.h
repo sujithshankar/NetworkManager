@@ -23,17 +23,15 @@
 #define __NM_DBUS_MANAGER_H__
 
 #include <config.h>
-#include <glib-object.h>
-#include <dbus/dbus.h>
-#include <dbus/dbus-glib.h>
+#include <gio/gio.h>
 
 #include "nm-types.h"
 
 G_BEGIN_DECLS
 
-typedef gboolean (* NMDBusSignalHandlerFunc) (DBusConnection * connection,
-                                              DBusMessage *    message,
-                                              gpointer         user_data);
+typedef gboolean (* NMDBusSignalHandlerFunc) (GDBusConnection * connection,
+                                              GDBusMessage *    message,
+                                              gpointer          user_data);
 
 #define NM_TYPE_DBUS_MANAGER (nm_dbus_manager_get_type ())
 #define NM_DBUS_MANAGER(o) (G_TYPE_CHECK_INSTANCE_CAST ((o), NM_TYPE_DBUS_MANAGER, NMDBusManager))
@@ -56,7 +54,7 @@ typedef struct {
 
 	/* Signals */
 	void (*dbus_connection_changed) (NMDBusManager *mgr,
-	                                 DBusConnection *connection);
+	                                 GDBusConnection *connection);
 
 	void (*name_owner_changed)      (NMDBusManager *mgr,
 	                                 const char *name,
@@ -64,10 +62,10 @@ typedef struct {
 	                                 const char *new_owner);
 
 	void (*private_connection_new) (NMDBusManager *mgr,
-	                                DBusGConnection *connection);
+	                                GDBusConnection *connection);
 
 	void (*private_connection_disconnected) (NMDBusManager *mgr,
-	                                         DBusGConnection *connection);
+	                                         GDBusConnection *connection);
 } NMDBusManagerClass;
 
 GType nm_dbus_manager_get_type (void);
@@ -83,11 +81,10 @@ gboolean nm_dbus_manager_start_service    (NMDBusManager *self);
 gboolean nm_dbus_manager_name_has_owner   (NMDBusManager *self,
                                            const char *name);
 
-DBusConnection * nm_dbus_manager_get_dbus_connection (NMDBusManager *self);
-DBusGConnection * nm_dbus_manager_get_connection (NMDBusManager *self);
+GDBusConnection * nm_dbus_manager_get_connection (NMDBusManager *self);
 
 gboolean nm_dbus_manager_get_caller_info (NMDBusManager *self,
-                                          DBusGMethodInvocation *context,
+                                          GDBusMethodInvocation *context,
                                           char **out_sender,
                                           gulong *out_uid,
                                           gulong *out_pid);
@@ -97,15 +94,11 @@ gboolean nm_dbus_manager_get_unix_user (NMDBusManager *self,
                                         gulong *out_uid);
 
 gboolean nm_dbus_manager_get_caller_info_from_message (NMDBusManager *self,
-                                                       DBusConnection *connection,
-                                                       DBusMessage *message,
+                                                       GDBusConnection *connection,
+                                                       GDBusMessage *message,
                                                        char **out_sender,
                                                        gulong *out_uid,
                                                        gulong *out_pid);
-
-void nm_dbus_manager_register_exported_type (NMDBusManager         *self,
-                                             GType                  object_type,
-                                             const DBusGObjectInfo *info);
 
 void nm_dbus_manager_register_object (NMDBusManager *self,
                                       const char *path,
@@ -117,15 +110,11 @@ void nm_dbus_manager_private_server_register (NMDBusManager *self,
                                               const char *path,
                                               const char *tag);
 
-DBusGProxy *nm_dbus_manager_new_proxy (NMDBusManager *self,
-                                       DBusGMethodInvocation *context,
+GDBusProxy *nm_dbus_manager_new_proxy (NMDBusManager *self,
+                                       GDBusMethodInvocation *context,
                                        const char *name,
                                        const char *path,
                                        const char *iface);
-
-#if !HAVE_DBUS_GLIB_GMI_GET_CONNECTION
-DBusGConnection *dbus_g_method_invocation_get_g_connection (DBusGMethodInvocation *context);
-#endif
 
 G_END_DECLS
 

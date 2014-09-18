@@ -22,10 +22,9 @@
 #ifndef __NETWORKMANAGER_DEVICE_H__
 #define __NETWORKMANAGER_DEVICE_H__
 
-#include <glib-object.h>
-#include <dbus/dbus-glib.h>
 #include <netinet/in.h>
 
+#include "nm-object.h"
 #include "nm-dbus-interface.h"
 #include "nm-types.h"
 #include "nm-connection.h"
@@ -94,11 +93,11 @@ typedef enum {
 } NMDeviceError;
 
 struct _NMDevice {
-	GObject parent;
+	NMObject parent;
 };
 
 typedef struct {
-	GObjectClass parent;
+	NMObjectClass parent;
 
 	const char *connection_type;
 
@@ -215,7 +214,7 @@ typedef struct {
 
 
 typedef void (*NMDeviceAuthRequestFunc) (NMDevice *device,
-                                         DBusGMethodInvocation *context,
+                                         GDBusMethodInvocation *context,
                                          GError *error,
                                          gpointer user_data);
 

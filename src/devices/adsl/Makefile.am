@@ -13,7 +13,6 @@ AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\""NetworkManager-adsl"\" \
 	-DNETWORKMANAGER_COMPILATION \
 	-DNM_VERSION_MAX_ALLOWED=NM_VERSION_NEXT_STABLE \
-	$(DBUS_CFLAGS) \
 	$(GUDEV_CFLAGS)
 
 GLIB_GENERATED = nm-adsl-enum-types.h nm-adsl-enum-types.c
@@ -43,7 +42,6 @@ libnm_device_plugin_adsl_la_LDFLAGS = \
 	-Wl,--version-script=$(SYMBOL_VIS_FILE)
 
 libnm_device_plugin_adsl_la_LIBADD = \
-	$(DBUS_LIBS) \
 	$(GUDEV_LIBS)
 
 CLEANFILES = $(BUILT_SOURCES)
