@@ -86,7 +86,7 @@ nm_device_team_error_quark (void)
 static guint32
 get_generic_capabilities (NMDevice *device)
 {
-	return NM_DEVICE_CAP_CARRIER_DETECT;
+	return NM_DEVICE_CAP_CARRIER_DETECT | NM_DEVICE_CAP_IS_SOFTWARE;
 }
 
 static gboolean
