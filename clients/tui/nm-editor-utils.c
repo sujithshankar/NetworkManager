@@ -71,6 +71,7 @@ bond_connection_setup_func (NMConnection        *connection,
                             NMSettingConnection *s_con,
                             NMSetting           *s_hw)
 {
+#if 0
 	NMSettingBond *s_bond = NM_SETTING_BOND (s_hw);
 	const char **options, *def, *cur;
 	int i;
@@ -82,6 +83,7 @@ bond_connection_setup_func (NMConnection        *connection,
 		if (g_strcmp0 (def, cur) != 0)
 			nm_setting_bond_add_option (s_bond, options[i], def);
 	}
+#endif
 }
 
 typedef void (*NMEditorNewConnectionSetupFunc) (NMConnection        *connection,

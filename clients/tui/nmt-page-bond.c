@@ -110,7 +110,7 @@ bond_options_changed (GObject    *object,
 	NMSettingBond *s_bond = NM_SETTING_BOND (object);
 	NmtPageBond *bond = NMT_PAGE_BOND (user_data);
 	NmtPageBondPrivate *priv = NMT_PAGE_BOND_GET_PRIVATE (bond);
-	const char *val;
+	const char *val, *def;
 	char **ips;
 
 	if (priv->updating)
@@ -140,14 +140,26 @@ bond_options_changed (GObject    *object,
 	if (priv->monitoring_mode == NMT_PAGE_BOND_MONITORING_MII) {
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->miimon), TRUE);
 		val = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_MIIMON);
+		if (!val) {
+			val = nm_setting_bond_get_option_default (s_bond, NM_SETTING_BOND_OPTION_MIIMON);
+			nm_setting_bond_add_option (priv->s_bond, NM_SETTING_BOND_OPTION_MIIMON, val);
+		}
 		nmt_newt_entry_set_text (priv->miimon, val);
 
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->updelay), TRUE);
 		val = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_UPDELAY);
+		if (!val) {
+			val = nm_setting_bond_get_option_default (s_bond, NM_SETTING_BOND_OPTION_UPDELAY);
+			nm_setting_bond_add_option (priv->s_bond, NM_SETTING_BOND_OPTION_UPDELAY, val);
+		}
 		nmt_newt_entry_set_text (priv->updelay, val);
 
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->downdelay), TRUE);
 		val = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY);
+		if (!val) {
+			val = nm_setting_bond_get_option_default (s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY);
+			nm_setting_bond_add_option (priv->s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY, val);
+		}
 		nmt_newt_entry_set_text (priv->downdelay, val);
 
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->arp_interval), FALSE);
@@ -155,7 +167,8 @@ bond_options_changed (GObject    *object,
 	} else {
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->arp_interval), TRUE);
 		val = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_ARP_INTERVAL);
-		nmt_newt_entry_set_text (priv->arp_interval, val);
+		def = nm_setting_bond_get_option_default (s_bond, NM_SETTING_BOND_OPTION_ARP_INTERVAL);
+		nmt_newt_entry_set_text (priv->arp_interval, val ? val : def);
 
 		nmt_newt_widget_set_visible (NMT_NEWT_WIDGET (priv->arp_ip_target), TRUE);
 		val = nm_setting_bond_get_option_by_name (s_bond, NM_SETTING_BOND_OPTION_ARP_IP_TARGET);
