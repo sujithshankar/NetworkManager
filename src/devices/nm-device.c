@@ -183,7 +183,6 @@ typedef struct {
 	char *        path;
 	char *        iface;   /* may change, could be renamed by user */
 	int           ifindex;
-	gboolean      is_software;
 	gboolean      real;
 	char *        ip_iface;
 	int           ip_ifindex;
@@ -524,9 +523,7 @@ nm_device_get_ifindex (NMDevice *self)
 gboolean
 nm_device_is_software (NMDevice *self)
 {
-	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
-
-	return priv->is_software;
+	return NM_FLAGS_HAS (NM_DEVICE_GET_PRIVATE (self)->capabilities, NM_DEVICE_CAP_IS_SOFTWARE);
 }
 
 /**
@@ -1365,6 +1362,8 @@ setup (NMDevice *self, NMPlatformLink *plink)
 	g_return_if_fail (priv->ip_ifindex <= 0);
 	g_return_if_fail (priv->ip_iface == NULL);
 
+	g_object_freeze_notify (G_OBJECT (self));
+
 	if (plink) {
 		g_return_if_fail (priv->iface == NULL || strcmp (plink->name, priv->iface) == 0);
 		update_device_from_platform_link (self, plink);
@@ -1372,6 +1371,9 @@ setup (NMDevice *self, NMPlatformLink *plink)
 
 	if (priv->ifindex > 0) {
 		_LOGD (LOGD_DEVICE, "setup(): %s, kernel ifindex %d", G_OBJECT_TYPE_NAME (self), priv->ifindex);
+		priv->physical_port_id = nm_platform_link_get_physical_port_id (priv->ifindex);
+		if (nm_platform_link_is_software (priv->ifindex))
+			priv->capabilities |= NM_DEVICE_CAP_IS_SOFTWARE;
 
 		nm_platform_link_get_driver_info (priv->ifindex, &priv->driver_version, &priv->firmware_version);
 		if (priv->driver_version)
@@ -1434,18 +1436,12 @@ setup (NMDevice *self, NMPlatformLink *plink)
 		priv->carrier = TRUE;
 	}
 
-	if (priv->ifindex > 0) {
-		priv->is_software = nm_platform_link_is_software (priv->ifindex);
-		priv->physical_port_id = nm_platform_link_get_physical_port_id (priv->ifindex);
-	}
-
-	/* Indicate software device in capabilities. */
-	if (priv->is_software)
-		priv->capabilities |= NM_DEVICE_CAP_IS_SOFTWARE;
 	g_object_notify (G_OBJECT (self), NM_DEVICE_CAPABILITIES);
 
 	priv->real = TRUE;
 	g_object_notify (G_OBJECT (self), NM_DEVICE_REAL);
+
+	g_object_thaw_notify (G_OBJECT (self));
 }
 
 static gboolean
@@ -8105,6 +8101,9 @@ constructed (GObject *object)
 	NMDevice *self = NM_DEVICE (object);
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	NMPlatform *platform;
+
+	if (NM_DEVICE_GET_CLASS (self)->get_generic_capabilities)
+		priv->capabilities |= NM_DEVICE_GET_CLASS (self)->get_generic_capabilities (self);
 
 	/* Watch for external IP config changes */
 	platform = nm_platform_get ();
