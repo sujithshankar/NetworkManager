@@ -221,13 +221,16 @@ done:
 static gboolean
 _handle_signal (gpointer user_data)
 {
+	NMConfig *config;
 	int signo = GPOINTER_TO_INT (user_data);
 
 	g_assert (signo == SIGHUP);
 
-	nm_log_info (LOGD_CORE, "caught signal %d, reload configuration...", signo);
-
-	nm_config_reload (nm_config_get ());
+	config = nm_config_try_get ();
+	if (config) {
+		nm_log_info (LOGD_CORE, "caught signal %d, reload configuration...", signo);
+		nm_config_reload (config);
+	}
 
 	return G_SOURCE_REMOVE;
 }

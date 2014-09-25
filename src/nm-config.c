@@ -565,6 +565,12 @@ nm_config_reload (NMConfig *self)
 static NMConfig *singleton = NULL;
 
 NMConfig *
+nm_config_try_get (void)
+{
+	return singleton;
+}
+
+NMConfig *
 nm_config_get (void)
 {
 	g_assert (singleton);

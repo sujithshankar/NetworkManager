@@ -55,6 +55,7 @@ typedef struct {
 
 GType nm_config_get_type (void);
 
+NMConfig *nm_config_try_get (void);
 NMConfig *nm_config_get (void);
 
 NMConfigData *nm_config_get_data (NMConfig *config);
