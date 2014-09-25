@@ -55,6 +55,7 @@ typedef struct {
 	NMConfigCmdLineOptions cli;
 
 	NMConfigData *config_data;
+	NMConfigData *config_data0;
 
 	char *nm_conf_path;
 	char *config_dir;
@@ -88,6 +89,17 @@ nm_config_get_data (NMConfig *config)
 	g_return_val_if_fail (config != NULL, NULL);
 
 	return NM_CONFIG_GET_PRIVATE (config)->config_data;
+}
+
+/* The NMConfigData instance is reloadable and will be swapped on reload.
+ * nm_config_get_data0() returns the original configuration, when the NMConfig
+ * instance was created. */
+NMConfigData *
+nm_config_get_data0 (NMConfig *config)
+{
+	g_return_val_if_fail (config != NULL, NULL);
+
+	return NM_CONFIG_GET_PRIVATE (config)->config_data0;
 }
 
 const char *
@@ -631,6 +643,7 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 	                                  NM_CONFIG_DATA_CONNECTIVITY_INTERVAL, connectivity_interval,
 	                                  NM_CONFIG_DATA_CONNECTIVITY_RESPONSE, connectivity_response,
 	                                  NULL);
+	priv->config_data0 = g_object_ref (priv->config_data);
 	g_free (connectivity_uri);
 	g_free (connectivity_response);
 
@@ -667,8 +680,8 @@ finalize (GObject *gobject)
 
 	_nm_config_cmd_line_options_clear (&priv->cli);
 
-	if (priv->config_data)
-		g_object_unref (priv->config_data);
+	g_clear_object (&priv->config_data);
+	g_clear_object (&priv->config_data0);
 
 	G_OBJECT_CLASS (nm_config_parent_class)->finalize (gobject);
 }
