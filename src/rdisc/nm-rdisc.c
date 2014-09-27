@@ -40,12 +40,21 @@ static guint signals[LAST_SIGNAL] = { 0 };
 
 /******************************************************************/
 
-void
+gboolean
 nm_rdisc_set_iid (NMRDisc *rdisc, const NMUtilsIPv6IfaceId iid)
 {
 	g_return_if_fail (NM_IS_RDISC (rdisc));
 
-	rdisc->iid = iid;
+	if (rdisc->iid.id != iid.id) {
+		if (rdisc->addresses->len) {
+			debug ("(%s) IPv6 interface identifier changed, flushing addresses", rdisc->ifname);
+			g_array_remove_range (rdisc->addresses, 0, rdisc->addresses->len);
+		}
+		rdisc->iid = iid;
+		return TRUE;
+	}
+
+	return FALSE;
 }
 
 void

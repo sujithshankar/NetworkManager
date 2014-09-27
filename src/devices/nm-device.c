@@ -1062,6 +1062,7 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 {
 	NMDeviceClass *klass = NM_DEVICE_GET_CLASS (self);
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
+	NMUtilsIPv6IfaceId token_iid;
 	gboolean ip_ifname_changed = FALSE;
 
 	if (info->udi && g_strcmp0 (info->udi, priv->udi)) {
@@ -1120,9 +1121,14 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 	} else if (priv->enslaved && !info->master)
 		nm_device_release_one_slave (priv->master, self, FALSE, NM_DEVICE_STATE_REASON_NONE);
 
+	if (priv->rdisc && nm_platform_link_get_ipv6_token (priv->ifindex, &token_iid)) {
+		_LOGD (LOGD_DEVICE, "IPv6 tokenized identifier present on device %s", priv->iface);
+		if (nm_rdisc_set_iid (priv->rdisc, token_iid))
+			nm_rdisc_start (priv->rdisc);
+	}
+
 	if (klass->link_changed)
 		klass->link_changed (self, info);
-
 
 	/* Update DHCP, etc, if needed */
 	if (ip_ifname_changed)
@@ -3698,11 +3704,12 @@ addrconf6_start_with_link_ready (NMDevice *self)
 
 	g_assert (priv->rdisc);
 
-	if (!nm_device_get_ip_iface_identifier (self, &iid)) {
+	if (nm_platform_link_get_ipv6_token (priv->ifindex, &iid)) {
+		_LOGD (LOGD_DEVICE, "IPv6 tokenized identifier present on device %s", priv->iface);
+	} else if (!nm_device_get_ip_iface_identifier (self, &iid)) {
 		_LOGW (LOGD_IP6, "failed to get interface identifier; IPv6 cannot continue");
 		return FALSE;
 	}
-	nm_rdisc_set_iid (priv->rdisc, iid);
 
 	/* Apply any manual configuration before starting RA */
 	if (!ip6_config_merge_and_apply (self, TRUE, NULL))
@@ -3721,6 +3728,8 @@ addrconf6_start_with_link_ready (NMDevice *self)
 	                                           NM_RDISC_RA_TIMEOUT,
 	                                           G_CALLBACK (rdisc_ra_timeout),
 	                                           self);
+
+	nm_rdisc_set_iid (priv->rdisc, iid);
 	nm_rdisc_start (priv->rdisc);
 	return TRUE;
 }
