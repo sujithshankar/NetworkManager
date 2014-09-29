@@ -63,7 +63,7 @@ enum {
 
 /**
  * nmt_newt_popup_new:
- * @entries: an array of #NmtNewtPopupEntry, terminated by an
+ * @entries: (allow-none): an array of #NmtNewtPopupEntry, terminated by an
  *   entry with a %NULL label
  *
  * Creates a new #NmtNewtPopup with the given entries.
@@ -80,15 +80,38 @@ nmt_newt_popup_new (NmtNewtPopupEntry *entries)
 	widget = g_object_new (NMT_TYPE_NEWT_POPUP, NULL);
 	priv = NMT_NEWT_POPUP_GET_PRIVATE (widget);
 
-	for (i = 0; entries[i].label; i++) {
-		NmtNewtPopupEntry entry;
+	if (entries) {
+		for (i = 0; entries[i].label; i++) {
+			NmtNewtPopupEntry entry;
 
-		entry.label = nmt_newt_locale_from_utf8 (_(entries[i].label));
-		entry.id = g_strdup (entries[i].id);
-		g_array_append_val (priv->entries, entry);
+			entry.label = nmt_newt_locale_from_utf8 (_(entries[i].label));
+			entry.id = g_strdup (entries[i].id);
+			g_array_append_val (priv->entries, entry);
+		}
 	}
 
 	return widget;
+}
+
+/**
+ * nmt_newt_popup_append:
+ * @popup: an #NmtNewtPopup
+ * @label: the label
+ * @id: the ID for this item
+ *
+ * Appends a new entry to @popup.
+ */
+void
+nmt_newt_popup_append (NmtNewtPopup *popup,
+                       const char   *label,
+                       const char   *id)
+{
+	NmtNewtPopupPrivate *priv = NMT_NEWT_POPUP_GET_PRIVATE (popup);
+	NmtNewtPopupEntry entry;
+
+	entry.label = nmt_newt_locale_from_utf8 (label);
+	entry.id = g_strdup (id);
+	g_array_append_val (priv->entries, entry);
 }
 
 static void

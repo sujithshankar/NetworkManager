@@ -80,6 +80,9 @@ nmt_newt_label_set_text (NmtNewtLabel *label,
 {
 	NmtNewtLabelPrivate *priv = NMT_NEWT_LABEL_GET_PRIVATE (label);
 
+	if (!text)
+		text = "";
+
 	if (!g_strcmp0 (priv->text, text))
 		return;
 

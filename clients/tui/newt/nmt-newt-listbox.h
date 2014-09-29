@@ -54,8 +54,13 @@ void           nmt_newt_listbox_set_height     (NmtNewtListbox      *listbox,
                                                 int                  height);
 
 void           nmt_newt_listbox_append         (NmtNewtListbox      *listbox,
-                                                const char          *entry,
+                                                const char          *label,
                                                 gpointer             key);
+void           nmt_newt_listbox_append_full    (NmtNewtListbox      *listbox,
+                                                const char          *label,
+                                                gpointer             key,
+                                                GDestroyNotify       dnotify);
+
 void           nmt_newt_listbox_clear          (NmtNewtListbox      *listbox);
 
 void           nmt_newt_listbox_set_active     (NmtNewtListbox      *listbox,
@@ -65,6 +70,10 @@ void           nmt_newt_listbox_set_active_key (NmtNewtListbox      *listbox,
 
 int            nmt_newt_listbox_get_active     (NmtNewtListbox      *listbox);
 gpointer       nmt_newt_listbox_get_active_key (NmtNewtListbox      *listbox);
+
+int            nmt_newt_listbox_get_num_rows   (NmtNewtListbox      *listbox);
+gpointer       nmt_newt_listbox_get_key        (NmtNewtListbox      *listbox,
+                                                int                  row);
 
 G_END_DECLS
 

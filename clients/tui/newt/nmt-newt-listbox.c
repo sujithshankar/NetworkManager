@@ -42,12 +42,17 @@ G_DEFINE_TYPE (NmtNewtListbox, nmt_newt_listbox, NMT_TYPE_NEWT_COMPONENT)
 #define NMT_NEWT_LISTBOX_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NMT_TYPE_NEWT_LISTBOX, NmtNewtListboxPrivate))
 
 typedef struct {
+	char *label;
+	gpointer key;
+	GDestroyNotify dnotify;
+} NmtNewtListboxEntry;
+
+typedef struct {
 	int height, alloc_height, width;
 	gboolean fixed_height;
 	NmtNewtListboxFlags flags;
 
-	GPtrArray *entries;
-	GPtrArray *keys;
+	GArray *entries;
 
 	int active;
 	gpointer active_key;
@@ -96,20 +101,50 @@ nmt_newt_listbox_new (int                 height,
 /**
  * nmt_newt_listbox_append:
  * @listbox: an #NmtNewtListbox
- * @entry: the text for the new row
- * @key: (allow-none): the key associated with @entry
+ * @label: the text for the new row
+ * @key: (allow-none): the key associated with @label
  *
  * Adds a row to @listbox.
  */
 void
 nmt_newt_listbox_append (NmtNewtListbox *listbox,
-                         const char     *entry,
+                         const char     *label,
                          gpointer        key)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
+	NmtNewtListboxEntry entry;
 
-	g_ptr_array_add (priv->entries, nmt_newt_locale_from_utf8 (entry));
-	g_ptr_array_add (priv->keys, key);
+	entry.label = nmt_newt_locale_from_utf8 (label);
+	entry.key = key;
+	entry.dnotify = NULL;
+
+	g_array_append_val (priv->entries, entry);
+	nmt_newt_widget_needs_rebuild (NMT_NEWT_WIDGET (listbox));
+}
+
+/**
+ * nmt_newt_listbox_append:
+ * @listbox: an #NmtNewtListbox
+ * @label: the text for the new row
+ * @key: (allow-none): the key associated with @label
+ * @dnotify: #GDestroyNotify for @key
+ *
+ * Adds a row to @listbox.
+ */
+void
+nmt_newt_listbox_append_full (NmtNewtListbox *listbox,
+                              const char     *label,
+                              gpointer        key,
+                              GDestroyNotify  dnotify)
+{
+	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
+	NmtNewtListboxEntry entry;
+
+	entry.label = nmt_newt_locale_from_utf8 (label);
+	entry.key = key;
+	entry.dnotify = dnotify;
+
+	g_array_append_val (priv->entries, entry);
 	nmt_newt_widget_needs_rebuild (NMT_NEWT_WIDGET (listbox));
 }
 
@@ -124,8 +159,7 @@ nmt_newt_listbox_clear (NmtNewtListbox *listbox)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
 
-	g_ptr_array_set_size (priv->entries, 0);
-	g_ptr_array_set_size (priv->keys, 0);
+	g_array_set_size (priv->entries, 0);
 
 	priv->active = -1;
 	priv->active_key = NULL;
@@ -146,15 +180,18 @@ nmt_newt_listbox_set_active (NmtNewtListbox *listbox,
                              int             active)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
+	NmtNewtListboxEntry *entry;
 
 	if (active == priv->active)
 		return;
 
 	g_return_if_fail (active >= 0 && active < priv->entries->len);
-	g_return_if_fail (!priv->skip_null_keys || priv->keys->pdata[active]);
+
+	entry = &g_array_index (priv->entries, NmtNewtListboxEntry, active);
+	g_return_if_fail (!priv->skip_null_keys || entry->key);
 
 	priv->active = active;
-	priv->active_key = priv->keys->pdata[active];
+	priv->active_key = entry->key;
 
 	g_object_notify (G_OBJECT (listbox), "active");
 	g_object_notify (G_OBJECT (listbox), "active-key");
@@ -180,8 +217,11 @@ nmt_newt_listbox_set_active_key (NmtNewtListbox *listbox,
 
 	g_return_if_fail (!priv->skip_null_keys || active_key);
 
-	for (i = 0; i < priv->keys->len; i++) {
-		if (priv->keys->pdata[i] == active_key) {
+	for (i = 0; i < priv->entries->len; i++) {
+		NmtNewtListboxEntry *entry;
+
+		entry = &g_array_index (priv->entries, NmtNewtListboxEntry, i);
+		if (entry->key == active_key) {
 			priv->active = i;
 			priv->active_key = active_key;
 
@@ -225,6 +265,43 @@ nmt_newt_listbox_get_active_key (NmtNewtListbox *listbox)
 }
 
 /**
+ * nmt_newt_listbox_get_num_rows:
+ * @listbox: an #NmtNewtListbox
+ *
+ * Gets the number of rows in @listbox (ie, the number of entries, not the
+ * height of the widget onscreen).
+ *
+ * Returns: the number of rows in @listbox.
+ */
+int
+nmt_newt_listbox_get_num_rows (NmtNewtListbox *listbox)
+{
+	return NMT_NEWT_LISTBOX_GET_PRIVATE (listbox)->entries->len;
+}
+
+/**
+ * nmt_newt_listbox_get_key:
+ * @listbox: an #NmtNewtListbox
+ * @row: a row in @listbox
+ *
+ * Gets the key associated with row @row of @listbox.
+ *
+ * Returns: the key associated with row @row
+ */
+gpointer
+nmt_newt_listbox_get_key (NmtNewtListbox *listbox,
+                          int             row)
+{
+	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
+	NmtNewtListboxEntry *entry;
+
+	g_return_val_if_fail (row < priv->entries->len, NULL);
+
+	entry = &g_array_index (priv->entries, NmtNewtListboxEntry, row);
+	return entry->key;
+}
+
+/**
  * nmt_newt_listbox_set_height:
  * @listbox: an #NmtNewtListbox
  * @height: the new height, or -1 for no fixed heigh
@@ -243,12 +320,20 @@ nmt_newt_listbox_set_height (NmtNewtListbox *listbox,
 }
 
 static void
+nmt_newt_listbox_entry_clear (NmtNewtListboxEntry *entry)
+{
+	g_free (entry->label);
+	if (entry->dnotify)
+		entry->dnotify (entry->key);
+}
+
+static void
 nmt_newt_listbox_init (NmtNewtListbox *listbox)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
 
-	priv->entries = g_ptr_array_new_with_free_func (g_free);
-	priv->keys = g_ptr_array_new ();
+	priv->entries = g_array_new (FALSE, FALSE, sizeof (NmtNewtListboxEntry));
+	g_array_set_clear_func (priv->entries, (GDestroyNotify) nmt_newt_listbox_entry_clear);
 
 	priv->active = -1;
 }
@@ -258,8 +343,7 @@ nmt_newt_listbox_finalize (GObject *object)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (object);
 
-	g_ptr_array_unref (priv->entries);
-	g_ptr_array_unref (priv->keys);
+	g_array_unref (priv->entries);
 
 	G_OBJECT_CLASS (nmt_newt_listbox_parent_class)->finalize (object);
 }
@@ -310,26 +394,27 @@ update_active_internal (NmtNewtListbox *listbox,
                         int             new_active)
 {
 	NmtNewtListboxPrivate *priv = NMT_NEWT_LISTBOX_GET_PRIVATE (listbox);
+	NmtNewtListboxEntry *entries = (NmtNewtListboxEntry *) priv->entries->data;
 
 	if (priv->active == new_active)
 		return;
-	if (new_active >= priv->keys->len)
+	if (new_active >= priv->entries->len)
 		return;
 
-	if (priv->skip_null_keys && !priv->keys->pdata[new_active]) {
+	if (priv->skip_null_keys && !entries[new_active].key) {
 		if (new_active > priv->active) {
 			while (   new_active < priv->entries->len
-			       && !priv->keys->pdata[new_active])
+			       && !entries[new_active].key)
 				new_active++;
 		} else {
 			while (   new_active >= 0
-			       && !priv->keys->pdata[new_active])
+			       && !entries[new_active].key)
 				new_active--;
 		}
 
 		if (   new_active < 0
 		    || new_active >= priv->entries->len
-		    || !priv->keys->pdata[new_active]) {
+		    || !entries[new_active].key) {
 			g_assert (priv->active >= 0 && priv->active < priv->entries->len);
 			return;
 		}
@@ -382,8 +467,10 @@ nmt_newt_listbox_build_component (NmtNewtComponent *component,
 	newtComponentAddCallback (co, selection_changed_callback, component);
 
 	for (i = 0; i < priv->entries->len; i++) {
-		newtListboxAppendEntry (co, priv->entries->pdata[i], GUINT_TO_POINTER (i));
-		if (active == -1 && priv->keys->pdata[i] == priv->active_key)
+		NmtNewtListboxEntry *entry = &g_array_index (priv->entries, NmtNewtListboxEntry, i);
+
+		newtListboxAppendEntry (co, entry->label, GUINT_TO_POINTER (i));
+		if (active == -1 && entry->key == priv->active_key)
 			active = i;
 	}
 

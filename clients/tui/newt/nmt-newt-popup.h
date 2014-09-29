@@ -49,6 +49,10 @@ typedef struct {
 
 NmtNewtWidget *nmt_newt_popup_new           (NmtNewtPopupEntry *entries);
 
+void           nmt_newt_popup_append        (NmtNewtPopup      *popup,
+                                             const char        *label,
+                                             const char        *id);
+
 int            nmt_newt_popup_get_active    (NmtNewtPopup      *popup);
 void           nmt_newt_popup_set_active    (NmtNewtPopup      *popup,
                                              int                active);
