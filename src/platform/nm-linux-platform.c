@@ -1887,6 +1887,63 @@ _rtnl_addr_timestamps_equal_fuzzy (guint32 ts1, guint32 ts2)
 	return diff <= 2;
 }
 
+static gboolean
+nm_nl_object_diff (struct nl_object *_a, struct nl_object *_b, ObjectType type)
+{
+	/* libnl thinks objects are different*/
+	if (nl_object_diff (_a, _b))
+		return TRUE;
+
+#if HAVE_LIBNL_INET6_TOKEN
+	/* libnl ignores PROTINFO changes in object without AF assigned */
+	if (type == OBJECT_TYPE_LINK) {
+		struct rtnl_addr *a = (struct rtnl_addr *) _a;
+		struct rtnl_addr *b = (struct rtnl_addr *) _b;
+		auto_nl_addr struct nl_addr *token_a = NULL;
+		auto_nl_addr struct nl_addr *token_b = NULL;
+
+		if (rtnl_link_inet6_get_token ((struct rtnl_link *) a, &token_a) != 0)
+			token_a = NULL;
+		if (rtnl_link_inet6_get_token ((struct rtnl_link *) b, &token_b) != 0)
+			token_b = NULL;
+
+		if (token_a && token_b) {
+			if (nl_addr_get_family (token_a) == AF_INET6 &&
+			    nl_addr_get_family (token_b) == AF_INET6 &&
+			    nl_addr_get_len (token_a) == sizeof (struct in6_addr) &&
+			    nl_addr_get_len (token_b) == sizeof (struct in6_addr) &&
+			    memcmp (nl_addr_get_binary_addr (token_a),
+			            nl_addr_get_binary_addr (token_b),
+                                    sizeof (struct in6_addr))) {
+				/* Token changed */
+				return TRUE;
+			}
+		} else if (token_a != token_b) {
+			/* Token added or removed (?). */
+			return TRUE;
+		}
+	}
+#endif
+
+	if (type == OBJECT_TYPE_IP4_ADDRESS || type == OBJECT_TYPE_IP6_ADDRESS) {
+		struct rtnl_addr *a = (struct rtnl_addr *) _a;
+		struct rtnl_addr *b = (struct rtnl_addr *) _b;
+
+		/* libnl nl_object_diff() ignores differences in timestamp. Let's care about
+		 * them (if they are large enough).
+		 *
+		 * Note that these valid and preferred timestamps are absolute, after
+		 * _rtnl_addr_hack_lifetimes_rel_to_abs(). */
+		if (   _rtnl_addr_timestamps_equal_fuzzy (rtnl_addr_get_preferred_lifetime (a),
+							  rtnl_addr_get_preferred_lifetime (b))
+		    && _rtnl_addr_timestamps_equal_fuzzy (rtnl_addr_get_valid_lifetime (a),
+							  rtnl_addr_get_valid_lifetime (b)))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 /* This function does all the magic to avoid race conditions caused
  * by concurrent usage of synchronous commands and an asynchronous cache. This
  * might be a nice future addition to libnl but it requires to do all operations
@@ -1992,23 +2049,8 @@ event_notification (struct nl_msg *msg, gpointer user_data)
 		 * This also catches notifications for internal addition or change, unless
 		 * another action occured very soon after it.
 		 */
-		if (!nl_object_diff (kernel_object, cached_object)) {
-			if (type == OBJECT_TYPE_IP4_ADDRESS || type == OBJECT_TYPE_IP6_ADDRESS) {
-				struct rtnl_addr *c = (struct rtnl_addr *) cached_object;
-				struct rtnl_addr *k = (struct rtnl_addr *) kernel_object;
-
-				/* libnl nl_object_diff() ignores differences in timestamp. Let's care about
-				 * them (if they are large enough).
-				 *
-				 * Note that these valid and preferred timestamps are absolute, after
-				 * _rtnl_addr_hack_lifetimes_rel_to_abs(). */
-				if (   _rtnl_addr_timestamps_equal_fuzzy (rtnl_addr_get_preferred_lifetime (c),
-				                                          rtnl_addr_get_preferred_lifetime (k))
-				    && _rtnl_addr_timestamps_equal_fuzzy (rtnl_addr_get_valid_lifetime (c),
-				                                          rtnl_addr_get_valid_lifetime (k)))
-					return NL_OK;
-			} else
-				return NL_OK;
+		if (!nm_nl_object_diff (kernel_object, cached_object, type)) {
+			return NL_OK;
 		}
 		/* Handle external change */
 		nl_cache_remove (cached_object);
