@@ -13656,8 +13656,7 @@ test_read_vlan_trailing_spaces (void)
 {
 	const char *testfile = TEST_IFCFG_DIR"/network-scripts/ifcfg-test-vlan-trailing-spaces";
 	NMConnection *connection;
-	gboolean ignore_error = FALSE, success;
-	char *unhandled_spec = NULL;
+	gboolean success;
 	GError *error = NULL;
 	NMSettingVlan *s_vlan;
 	char *contents = NULL;
@@ -13673,15 +13672,15 @@ test_read_vlan_trailing_spaces (void)
 	g_assert (strstr (contents, "DEVICE=\"vlan201\"  \n"));
 	g_free (contents);
 
-	connection = connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL, &unhandled_spec,
-	                                   NULL, NULL, NULL, &error, &ignore_error);
+	connection = connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL,
+	                                   NULL, NULL, NULL, &error, NULL);
 	g_assert_no_error (error);
 	g_assert (connection != NULL);
 
 	s_vlan = nm_connection_get_setting_vlan (connection);
 	g_assert (s_vlan);
 
-	g_assert_cmpstr (nm_setting_vlan_get_interface_name (s_vlan), ==, "vlan201");
+	g_assert_cmpstr (nm_connection_get_interface_name (connection), ==, "vlan201");
 	g_assert_cmpstr (nm_setting_vlan_get_parent (s_vlan), ==, "enccw0.0.fb00");
 	g_assert_cmpint (nm_setting_vlan_get_id (s_vlan), ==, 201);
 	g_assert_cmpint (nm_setting_vlan_get_flags (s_vlan), ==, 0);
