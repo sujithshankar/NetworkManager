@@ -369,7 +369,7 @@ usage_connection_add (void)
 	              "                  [updelay <num>]\n"
 	              "                  [arp-interval <num>]\n"
 	              "                  [arp-ip-target <num>]\n"
-	              "                  [lacp-rate slow (0) | fast (1)]\n"
+	              "                  [lacp-rate slow (0) | fast (1)]\n\n"
 	              "    bond-slave:   master <master (ifname, or connection UUID or name)>\n\n"
 	              "    team:         [config <file>|<raw JSON data>]\n\n"
 	              "    team-slave:   master <master (ifname, or connection UUID or name)>\n"
