@@ -117,9 +117,6 @@ typedef struct {
 	/* Carrier state (IFF_LOWER_UP) */
 	void            (*carrier_changed) (NMDevice *, gboolean carrier);
 
-	void        (* update_permanent_hw_address) (NMDevice *self);
-	void        (* update_initial_hw_address) (NMDevice *self);
-
 	gboolean    (* get_ip_iface_identifier) (NMDevice *self, NMUtilsIPv6IfaceId *out_iid);
 
 	guint32		(* get_generic_capabilities)	(NMDevice *self);
@@ -237,7 +234,9 @@ NMDeviceType	nm_device_get_device_type	(NMDevice *dev);
 
 int			nm_device_get_priority (NMDevice *dev);
 
-const char *    nm_device_get_hw_address   (NMDevice *dev);
+const char *    nm_device_get_hw_address           (NMDevice *dev);
+const char *    nm_device_get_permanent_hw_address (NMDevice *dev);
+const char *    nm_device_get_initial_hw_address   (NMDevice *dev);
 
 NMDhcp4Config * nm_device_get_dhcp4_config (NMDevice *dev);
 NMDhcp6Config * nm_device_get_dhcp6_config (NMDevice *dev);
