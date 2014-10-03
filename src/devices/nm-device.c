@@ -27,8 +27,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <linux/sockios.h>
-#include <linux/ethtool.h>
 #include <sys/ioctl.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -7212,46 +7210,6 @@ nm_device_init (NMDevice *self)
 	priv->ip6_saved_properties = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_free);
 }
 
-/*
- * Get driver info from SIOCETHTOOL ioctl() for 'iface'
- * Returns driver and firmware versions to 'driver_version and' 'firmware_version'
- */
-static gboolean
-device_get_driver_info (NMDevice *self, const char *iface, char **driver_version, char **firmware_version)
-{
-	struct ethtool_drvinfo drvinfo;
-	struct ifreq req;
-	int fd;
-
-	fd = socket (PF_INET, SOCK_DGRAM, 0);
-	if (fd < 0) {
-		_LOGW (LOGD_HW, "couldn't open control socket.");
-		return FALSE;
-	}
-
-	/* Get driver and firmware version info */
-	memset (&drvinfo, 0, sizeof (drvinfo));
-	memset (&req, 0, sizeof (struct ifreq));
-	strncpy (req.ifr_name, iface, IFNAMSIZ);
-	drvinfo.cmd = ETHTOOL_GDRVINFO;
-	req.ifr_data = &drvinfo;
-
-	errno = 0;
-	if (ioctl (fd, SIOCETHTOOL, &req) < 0) {
-		_LOGD (LOGD_HW, "SIOCETHTOOL ioctl() failed: cmd=ETHTOOL_GDRVINFO, iface=%s, errno=%d",
-		       iface, errno);
-		close (fd);
-		return FALSE;
-	}
-	if (driver_version)
-		*driver_version = g_strdup (drvinfo.version);
-	if (firmware_version)
-		*firmware_version = g_strdup (drvinfo.fw_version);
-
-	close (fd);
-	return TRUE;
-}
-
 static GObject*
 constructor (GType type,
              guint n_construct_params,
@@ -7287,7 +7245,8 @@ constructor (GType type,
 	if (NM_DEVICE_GET_CLASS (self)->get_generic_capabilities)
 		priv->capabilities |= NM_DEVICE_GET_CLASS (self)->get_generic_capabilities (self);
 
-	device_get_driver_info (self, priv->iface, &priv->driver_version, &priv->firmware_version);
+	if (priv->ifindex > 0)
+		nm_platform_link_get_driver_info (priv->ifindex, &priv->driver_version, &priv->firmware_version);
 
 	/* Watch for external IP config changes */
 	platform = nm_platform_get ();
