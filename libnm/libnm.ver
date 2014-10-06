@@ -218,6 +218,7 @@ global:
 	nm_device_infiniband_get_carrier;
 	nm_device_infiniband_get_hw_address;
 	nm_device_infiniband_get_type;
+	nm_device_is_real;
 	nm_device_is_software;
 	nm_device_modem_capabilities_get_type;
 	nm_device_modem_get_current_capabilities;
