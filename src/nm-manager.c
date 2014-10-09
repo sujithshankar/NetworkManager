@@ -2392,6 +2392,25 @@ _internal_activate_device (NMManager *self, NMActiveConnection *active, GError *
 	g_assert (connection);
 
 	device = nm_active_connection_get_device (active);
+
+	/* If the device is unrealized and the requested connection is not
+	 * comaptible with the unrealized device (eg bond device but bridge
+	 * connection) then we must destroy the unrealized device and create
+	 * a new device compatible with the connection.
+	 */
+	if (   device
+	    && nm_connection_is_virtual (connection)
+	    && !nm_device_is_real (device)
+	    && !nm_device_check_connection_compatible (device, connection)) {
+
+		nm_active_connection_set_device (active, NULL);
+
+		nm_log_dbg (LOGD_DEVICE, "(%s): removing incompatible device for connection '%s'",
+		            nm_device_get_iface (device), nm_connection_get_id (connection));
+		remove_device (self, device, FALSE);
+		device = NULL;
+	}
+
 	if (!device) {
 		if (!nm_connection_is_virtual (connection)) {
 			NMSettingConnection *s_con = nm_connection_get_setting_connection (connection);

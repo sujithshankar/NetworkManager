@@ -406,6 +406,9 @@ nm_active_connection_set_device (NMActiveConnection *self, NMDevice *device)
 			priv->pending_activation_id = g_strdup_printf ("activation::%p", (void *)self);
 			nm_device_add_pending_action (device, priv->pending_activation_id, TRUE);
 		}
+	} else {
+		_device_cleanup (self);
+		g_object_notify (G_OBJECT (self), NM_ACTIVE_CONNECTION_DEVICES);
 	}
 	return TRUE;
 }
