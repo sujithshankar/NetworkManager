@@ -103,6 +103,7 @@ typedef struct {
 	GObjectClass parent;
 
 	const char *connection_type;
+	const NMLinkType *link_types;
 
 	void (*state_changed) (NMDevice *device,
 	                       NMDeviceState new_state,

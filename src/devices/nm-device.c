@@ -1232,6 +1232,33 @@ check_carrier (NMDevice *self)
 gboolean
 nm_device_realize (NMDevice *self, NMPlatformLink *plink, GError **error)
 {
+	if (plink) {
+		NMDeviceClass *klass = NM_DEVICE_GET_CLASS (self);
+		guint i = 0;
+
+		if (!klass->link_types) {
+			g_set_error_literal (error,
+			                     NM_DEVICE_ERROR,
+			                     NM_DEVICE_ERROR_UNSUPPORTED_DEVICE_TYPE,
+			                     "Device does not support realization from platform links");
+			return FALSE;
+		}
+
+		while (klass->link_types[i] > NM_LINK_TYPE_UNKNOWN) {
+			if (plink->type == klass->link_types[i])
+				break;
+		}
+
+		if (klass->link_types[i] <= NM_LINK_TYPE_UNKNOWN) {
+			g_set_error (error,
+			             NM_DEVICE_ERROR,
+			             NM_DEVICE_ERROR_UNSUPPORTED_DEVICE_TYPE,
+			             "Device does not support realization from platform link '%s'",
+			             nm_platform_link_to_string (plink));
+			return FALSE;
+		}
+	}
+
 	/* Try to realize the device from existing resources */
 	if (NM_DEVICE_GET_CLASS (self)->realize) {
 		if (!NM_DEVICE_GET_CLASS (self)->realize (self, plink, error))

@@ -1856,16 +1856,26 @@ platform_link_added (NMManager *self,
 
 	device = find_device_by_iface (self, plink->name);
 	if (device) {
-		if (!nm_device_is_real (device)) {
-			if (nm_device_realize (device, plink, &error))
-				nm_device_setup_finish (device, plink);
-			else {
-				nm_log_warn (LOGD_DEVICE, "(%s): %s", plink->name, error->message);
-				g_clear_error (&error);
-				remove_device (self, device, FALSE);
-			}
+		gboolean incompatible;
+
+		if (nm_device_is_real (device))
+			return;
+
+		if (nm_device_realize (device, plink, &error)) {
+			/* Success */
+			nm_device_setup_finish (device, plink);
+			return;
 		}
-		return;
+
+		nm_log_warn (LOGD_DEVICE, "(%s): %s", plink->name, error->message);
+		remove_device (self, device, FALSE);
+
+		incompatible = g_error_matches (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_UNSUPPORTED_DEVICE_TYPE);
+		g_clear_error (&error);
+		if (!incompatible)
+			return;
+
+		/* Fall through and create new device for the link */
 	}
 
 	/* Try registered device factories */
