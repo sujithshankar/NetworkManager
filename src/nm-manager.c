@@ -1004,7 +1004,7 @@ system_create_virtual_device (NMManager *self, NMConnection *connection)
 
 	device = nm_device_factory_create_device (factory, iface, NULL, connection);
 	if (device) {
-		if (nm_device_realize_new (device, connection, parent, &error)) {
+		if (nm_device_create_and_realize (device, connection, parent, &error)) {
 			g_assert_no_error (error);
 			if (nm_owned)
 				nm_device_set_nm_owned (device);
@@ -1787,7 +1787,7 @@ factory_device_added_cb (NMDeviceFactory *factory,
 {
 	GError *error = NULL;
 
-	if (nm_device_realize_existing (device, NULL, &error))
+	if (nm_device_realize (device, NULL, &error))
 		add_device (NM_MANAGER (user_data), device, TRUE);
 	else {
 		nm_log_warn (LOGD_DEVICE, "(%s): %s", nm_device_get_iface (device), error->message);
@@ -1858,7 +1858,7 @@ platform_link_added (NMManager *self,
 	if (factory) {
 		device = nm_device_factory_create_device (factory, plink->name, plink, NULL);
 		if (device) {
-			if (!nm_device_realize_existing (device, plink, &error)) {
+			if (!nm_device_realize (device, plink, &error)) {
 				nm_log_warn (LOGD_HW, "%s: factory failed to create device: (%d) %s",
 				             plink->udi,
 				             error ? error->code : -1,
