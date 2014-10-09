@@ -94,6 +94,7 @@ typedef struct {
 	GObjectClass parent;
 
 	const char *connection_type;
+	const NMLinkType *link_types;
 
 	void (*state_changed) (NMDevice *device,
 	                       NMDeviceState new_state,
@@ -414,6 +415,7 @@ void     nm_device_set_nm_owned    (NMDevice *device);
 
 gboolean nm_device_realize            (NMDevice *device,
                                        NMPlatformLink *plink,
+                                       gboolean *out_compatible,
                                        GError **error);
 gboolean nm_device_create_and_realize (NMDevice *self,
                                        NMConnection *connection,
