@@ -75,6 +75,7 @@ struct libnl_vtable
 	void *handle;
 
 	int (*f_nl_has_capability) (int capability);
+	int (*f_rtnl_link_inet6_get_token) (struct rtnl_link *link, struct nl_addr **addr);
 };
 
 
@@ -130,6 +131,7 @@ _nl_get_vtable ()
 		if (handle) {
 			vtable.handle = handle;
 			vtable.f_nl_has_capability = dlsym (handle, "nl_has_capability");
+			vtable.f_rtnl_link_inet6_get_token = dlsym (handle, "rtnl_link_inet6_get_token");
 		}
 
 		if (!vtable.f_nl_has_capability)
@@ -145,6 +147,22 @@ static gboolean
 _nl_has_capability (int capability)
 {
 	return (_nl_get_vtable ()->f_nl_has_capability) (capability);
+}
+
+static gboolean
+_rtnl_link_inet6_get_token_has_support ()
+{
+	return _nl_get_vtable ()->f_rtnl_link_inet6_get_token != NULL;
+}
+
+static int
+_rtnl_link_inet6_get_token (struct rtnl_link *link, struct nl_addr **addr)
+{
+	struct libnl_vtable *vtable = _nl_get_vtable ();
+
+	if (!vtable->f_rtnl_link_inet6_get_token)
+		return -NLE_NOATTR;
+	return (vtable->f_rtnl_link_inet6_get_token) (link, addr);
 }
 
 /******************************************************************/
