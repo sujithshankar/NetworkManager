@@ -59,7 +59,7 @@ GQuark nm_device_error_quark (void);
 #define NM_DEVICE_DRIVER_VERSION "driver-version"
 #define NM_DEVICE_FIRMWARE_VERSION "firmware-version"
 #define NM_DEVICE_CAPABILITIES "capabilities"
-#define NM_DEVICE_REALIZED "realized"
+#define NM_DEVICE_REAL "real"
 #define NM_DEVICE_MANAGED "managed"
 #define NM_DEVICE_AUTOCONNECT "autoconnect"
 #define NM_DEVICE_FIRMWARE_MISSING "firmware-missing"
@@ -116,7 +116,6 @@ const char *         nm_device_get_type_description (NMDevice *device);
 const char *         nm_device_get_hw_address       (NMDevice *device);
 NMDeviceCapabilities nm_device_get_capabilities     (NMDevice *device);
 gboolean             nm_device_get_managed          (NMDevice *device);
-gboolean             nm_device_get_realized         (NMDevice *device);
 gboolean             nm_device_get_autoconnect      (NMDevice *device);
 void                 nm_device_set_autoconnect      (NMDevice *device, gboolean autoconnect);
 gboolean             nm_device_get_firmware_missing (NMDevice *device);
@@ -130,6 +129,7 @@ NMActiveConnection * nm_device_get_active_connection(NMDevice *device);
 const GPtrArray *    nm_device_get_available_connections(NMDevice *device);
 const char *         nm_device_get_physical_port_id (NMDevice *device);
 guint32              nm_device_get_mtu              (NMDevice *device);
+gboolean             nm_device_is_real              (NMDevice *device);
 gboolean             nm_device_is_software          (NMDevice *device);
 
 const char *         nm_device_get_product           (NMDevice  *device);
