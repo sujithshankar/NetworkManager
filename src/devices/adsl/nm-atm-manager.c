@@ -25,6 +25,7 @@
 #include <gmodule.h>
 
 #include "nm-atm-manager.h"
+#include "nm-setting-adsl.h"
 #include "nm-device-adsl.h"
 #include "nm-device-factory.h"
 #include "nm-logging.h"
@@ -203,8 +204,8 @@ handle_uevent (GUdevClient *client,
 		adsl_remove (self, device);
 }
 
-DEFINE_DEVICE_FACTORY_SUPPORTED_TYPES (
-	DEFINE_FACTORY_SETTING_TYPES (NM_SETTING_ADSL_SETTING_NAME)
+NM_DEVICE_FACTORY_DECLARE_TYPES (
+	NM_DEVICE_FACTORY_DECLARE_SETTING_TYPES (NM_SETTING_ADSL_SETTING_NAME)
 )
 
 /*********************************************************************/

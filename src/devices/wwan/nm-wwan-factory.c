@@ -25,6 +25,8 @@
 
 #include "nm-device-factory.h"
 #include "nm-wwan-factory.h"
+#include "nm-setting-gsm.h"
+#include "nm-setting-cdma.h"
 #include "nm-modem-manager.h"
 #include "nm-device-modem.h"
 #include "nm-logging.h"
@@ -87,9 +89,9 @@ modem_added_cb (NMModemManager *manager,
 }
 
 
-DEFINE_DEVICE_FACTORY_SUPPORTED_TYPES (
-	DEFINE_FACTORY_LINK_TYPES    (NM_LINK_TYPE_WWAN_ETHERNET)
-	DEFINE_FACTORY_SETTING_TYPES (NM_SETTING_GSM_SETTING_NAME, NM_SETTING_CDMA_SETTING_NAME)
+NM_DEVICE_FACTORY_DECLARE_TYPES (
+	NM_DEVICE_FACTORY_DECLARE_LINK_TYPES    (NM_LINK_TYPE_WWAN_ETHERNET)
+	NM_DEVICE_FACTORY_DECLARE_SETTING_TYPES (NM_SETTING_GSM_SETTING_NAME, NM_SETTING_CDMA_SETTING_NAME)
 )
 
 static void
