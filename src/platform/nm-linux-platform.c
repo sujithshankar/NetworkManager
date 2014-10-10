@@ -44,9 +44,9 @@
 #include <netlink/route/route.h>
 #include <gudev/gudev.h>
 
-#if HAVE_LIBNL_INET6_ADDR_GEN_MODE || HAVE_LIBNL_INET6_TOKEN
+#if HAVE_LIBNL_INET6_ADDR_GEN_MODE
 #include <netlink/route/link/inet6.h>
-#if HAVE_LIBNL_INET6_ADDR_GEN_MODE && HAVE_KERNEL_INET6_ADDR_GEN_MODE
+#if HAVE_KERNEL_INET6_ADDR_GEN_MODE
 #include <linux/if_link.h>
 #else
 #define IN6_ADDR_GEN_MODE_EUI64 0
@@ -2507,32 +2507,32 @@ link_set_noarp (NMPlatform *platform, int ifindex)
 static gboolean
 link_get_ipv6_token (NMPlatform *platform, int ifindex, NMUtilsIPv6IfaceId *iid)
 {
-#if HAVE_LIBNL_INET6_TOKEN
-	auto_nl_object struct rtnl_link *rtnllink = link_get (platform, ifindex);
-	struct nl_addr *nladdr;
-	struct in6_addr *addr;
+	if (_rtnl_link_inet6_get_token_has_support ()) {
+		auto_nl_object struct rtnl_link *rtnllink = link_get (platform, ifindex);
+		struct nl_addr *nladdr;
+		struct in6_addr *addr;
 
-	if (rtnllink &&
-	    (rtnl_link_inet6_get_token (rtnllink, &nladdr)) == 0) {
-		if (nl_addr_get_family (nladdr) != AF_INET6 ||
-		    nl_addr_get_len (nladdr) != sizeof (struct in6_addr)) {
+		if (rtnllink &&
+		    (_rtnl_link_inet6_get_token (rtnllink, &nladdr)) == 0) {
+			if (nl_addr_get_family (nladdr) != AF_INET6 ||
+			    nl_addr_get_len (nladdr) != sizeof (struct in6_addr)) {
+				nl_addr_put (nladdr);
+				return FALSE;
+			}
+
+			addr = nl_addr_get_binary_addr (nladdr);
+			iid->id_u8[7] = addr->s6_addr[15];
+			iid->id_u8[6] = addr->s6_addr[14];
+			iid->id_u8[5] = addr->s6_addr[13];
+			iid->id_u8[4] = addr->s6_addr[12];
+			iid->id_u8[3] = addr->s6_addr[11];
+			iid->id_u8[2] = addr->s6_addr[10];
+			iid->id_u8[1] = addr->s6_addr[9];
+			iid->id_u8[0] = addr->s6_addr[8];
 			nl_addr_put (nladdr);
-			return FALSE;
+			return TRUE;
 		}
-
-		addr = nl_addr_get_binary_addr (nladdr);
-		iid->id_u8[7] = addr->s6_addr[15];
-		iid->id_u8[6] = addr->s6_addr[14];
-		iid->id_u8[5] = addr->s6_addr[13];
-		iid->id_u8[4] = addr->s6_addr[12];
-		iid->id_u8[3] = addr->s6_addr[11];
-		iid->id_u8[2] = addr->s6_addr[10];
-		iid->id_u8[1] = addr->s6_addr[9];
-		iid->id_u8[0] = addr->s6_addr[8];
-		nl_addr_put (nladdr);
-		return TRUE;
 	}
-#endif
 	return FALSE;
 }
 
