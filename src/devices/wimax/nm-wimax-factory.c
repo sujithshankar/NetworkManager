@@ -24,6 +24,7 @@
 
 #include "nm-device-factory.h"
 #include "nm-device-wimax.h"
+#include "nm-setting-wimax.h"
 #include "nm-platform.h"
 
 #define NM_TYPE_WIMAX_FACTORY            (nm_wimax_factory_get_type ())
@@ -66,9 +67,9 @@ new_link (NMDeviceFactory *factory, NMPlatformLink *plink, GError **error)
 	return (NMDevice *) nm_device_wimax_new (plink);
 }
 
-DEFINE_DEVICE_FACTORY_SUPPORTED_TYPES (
-	DEFINE_FACTORY_LINK_TYPES    (NM_LINK_TYPE_WIMAX)
-	DEFINE_FACTORY_SETTING_TYPES (NM_SETTING_WIMAX_SETTING_NAME)
+NM_DEVICE_FACTORY_DECLARE_TYPES (
+	NM_DEVICE_FACTORY_DECLARE_LINK_TYPES    (NM_LINK_TYPE_WIMAX)
+	NM_DEVICE_FACTORY_DECLARE_SETTING_TYPES (NM_SETTING_WIMAX_SETTING_NAME)
 )
 
 static void
