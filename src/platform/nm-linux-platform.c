@@ -1894,17 +1894,17 @@ nm_nl_object_diff (struct nl_object *_a, struct nl_object *_b, ObjectType type)
 	if (nl_object_diff (_a, _b))
 		return TRUE;
 
-#if HAVE_LIBNL_INET6_TOKEN
 	/* libnl ignores PROTINFO changes in object without AF assigned */
-	if (type == OBJECT_TYPE_LINK) {
+	if (   type == OBJECT_TYPE_LINK
+	    && _rtnl_link_inet6_get_token_has_support ()) {
 		struct rtnl_addr *a = (struct rtnl_addr *) _a;
 		struct rtnl_addr *b = (struct rtnl_addr *) _b;
 		auto_nl_addr struct nl_addr *token_a = NULL;
 		auto_nl_addr struct nl_addr *token_b = NULL;
 
-		if (rtnl_link_inet6_get_token ((struct rtnl_link *) a, &token_a) != 0)
+		if (_rtnl_link_inet6_get_token ((struct rtnl_link *) a, &token_a) != 0)
 			token_a = NULL;
-		if (rtnl_link_inet6_get_token ((struct rtnl_link *) b, &token_b) != 0)
+		if (_rtnl_link_inet6_get_token ((struct rtnl_link *) b, &token_b) != 0)
 			token_b = NULL;
 
 		if (token_a && token_b) {
@@ -1923,7 +1923,6 @@ nm_nl_object_diff (struct nl_object *_a, struct nl_object *_b, ObjectType type)
 			return TRUE;
 		}
 	}
-#endif
 
 	if (type == OBJECT_TYPE_IP4_ADDRESS || type == OBJECT_TYPE_IP6_ADDRESS) {
 		struct rtnl_addr *a = (struct rtnl_addr *) _a;
