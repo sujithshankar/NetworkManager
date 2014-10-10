@@ -56,6 +56,7 @@ typedef struct {
 	NMState state;
 	gboolean startup;
 	GPtrArray *devices;
+	GPtrArray *all_devices;
 	GPtrArray *active_connections;
 	NMConnectivityState connectivity;
 	NMActiveConnection *primary_connection;
@@ -98,6 +99,7 @@ enum {
 	PROP_PRIMARY_CONNECTION,
 	PROP_ACTIVATING_CONNECTION,
 	PROP_DEVICES,
+	PROP_ALL_DEVICES,
 
 	LAST_PROP
 };
@@ -135,8 +137,8 @@ poke_wireless_devices_with_rf_status (NMManager *manager)
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (manager);
 	int i;
 
-	for (i = 0; i < priv->devices->len; i++) {
-		NMDevice *device = g_ptr_array_index (priv->devices, i);
+	for (i = 0; i < priv->all_devices->len; i++) {
+		NMDevice *device = g_ptr_array_index (priv->all_devices, i);
 
 		if (NM_IS_DEVICE_WIFI (device))
 			_nm_device_wifi_set_wireless_enabled (NM_DEVICE_WIFI (device), priv->wireless_enabled);
@@ -173,6 +175,7 @@ init_dbus (NMObject *object)
 		{ NM_MANAGER_PRIMARY_CONNECTION,        &priv->primary_connection, NULL, NM_TYPE_ACTIVE_CONNECTION },
 		{ NM_MANAGER_ACTIVATING_CONNECTION,     &priv->activating_connection, NULL, NM_TYPE_ACTIVE_CONNECTION },
 		{ NM_MANAGER_DEVICES,                   &priv->devices, NULL, NM_TYPE_DEVICE, "device" },
+		{ NM_MANAGER_ALL_DEVICES,               &priv->all_devices, NULL, NM_TYPE_DEVICE, "device" },
 		{ NULL },
 	};
 
@@ -636,6 +639,14 @@ nm_manager_get_devices (NMManager *manager)
 	return NM_MANAGER_GET_PRIVATE (manager)->devices;
 }
 
+const GPtrArray *
+nm_manager_get_all_devices (NMManager *manager)
+{
+	g_return_val_if_fail (NM_IS_MANAGER (manager), NULL);
+
+	return NM_MANAGER_GET_PRIVATE (manager)->all_devices;
+}
+
 NMDevice *
 nm_manager_get_device_by_path (NMManager *manager, const char *object_path)
 {
@@ -1063,26 +1074,32 @@ free_devices (NMManager *manager, gboolean in_dispose)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (manager);
 	GPtrArray *devices;
-	NMDevice *device;
 	int i;
 
-	if (!priv->devices)
-		return;
-
-	devices = priv->devices;
-
-	if (in_dispose)
-		priv->devices = NULL;
-	else {
-		priv->devices = g_ptr_array_new ();
-
-		for (i = 0; i < devices->len; i++) {
-			device = devices->pdata[i];
-			g_signal_emit (manager, signals[DEVICE_REMOVED], 0, device);
-		}
+	if (priv->devices) {
+		devices = priv->devices;
+		if (in_dispose)
+			priv->devices = NULL;
+		else
+			priv->devices = g_ptr_array_new ();
+		g_ptr_array_unref (devices);
 	}
 
-	g_ptr_array_unref (devices);
+	if (priv->all_devices) {
+		devices = priv->all_devices;
+		if (in_dispose)
+			priv->all_devices = NULL;
+		else {
+			/* "all_devices" is a superset of "devices", so we signalling
+			 * REMOVED for "all_devices" ensures we signal for anything in
+			 * "devices" too.
+			 */
+			priv->all_devices = g_ptr_array_new ();
+			for (i = 0; i < devices->len; i++)
+				g_signal_emit (manager, signals[DEVICE_REMOVED], 0, devices->pdata[i]);
+		}
+		g_ptr_array_unref (devices);
+	}
 }
 
 static void
@@ -1429,6 +1446,9 @@ get_property (GObject *object,
 	case PROP_DEVICES:
 		g_value_take_boxed (value, _nm_utils_copy_object_array (nm_manager_get_devices (self)));
 		break;
+	case PROP_ALL_DEVICES:
+		g_value_take_boxed (value, _nm_utils_copy_object_array (nm_manager_get_all_devices (self)));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1552,6 +1572,13 @@ nm_manager_class_init (NMManagerClass *manager_class)
 	g_object_class_install_property
 		(object_class, PROP_DEVICES,
 		 g_param_spec_boxed (NM_MANAGER_DEVICES, "", "",
+		                     G_TYPE_PTR_ARRAY,
+		                     G_PARAM_READABLE |
+		                     G_PARAM_STATIC_STRINGS));
+
+	g_object_class_install_property
+		(object_class, PROP_ALL_DEVICES,
+		 g_param_spec_boxed (NM_MANAGER_ALL_DEVICES, "", "",
 		                     G_TYPE_PTR_ARRAY,
 		                     G_PARAM_READABLE |
 		                     G_PARAM_STATIC_STRINGS));
