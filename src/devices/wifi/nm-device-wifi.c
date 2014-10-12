@@ -823,23 +823,25 @@ check_connection_compatible (NMDevice *device, NMConnection *connection)
 		return FALSE;
 
 	perm_hw_addr = nm_device_get_permanent_hw_address (device);
-
 	mac = nm_setting_wireless_get_mac_address (s_wireless);
-	if (mac && perm_hw_addr && !nm_utils_hwaddr_matches (mac, -1, perm_hw_addr, -1))
-		return FALSE;
-
-	/* Check for MAC address blacklist */
-	mac_blacklist = nm_setting_wireless_get_mac_address_blacklist (s_wireless);
-	for (mac_blacklist_iter = mac_blacklist; mac_blacklist_iter;
-	     mac_blacklist_iter = g_slist_next (mac_blacklist_iter)) {
-		if (!nm_utils_hwaddr_valid (mac_blacklist_iter->data, ETH_ALEN)) {
-			g_warn_if_reached ();
+	if (perm_hw_addr) {
+		if (mac && !nm_utils_hwaddr_matches (mac, -1, perm_hw_addr, -1))
 			return FALSE;
+
+		/* Check for MAC address blacklist */
+		mac_blacklist = nm_setting_wireless_get_mac_address_blacklist (s_wireless);
+		for (mac_blacklist_iter = mac_blacklist; mac_blacklist_iter;
+			 mac_blacklist_iter = g_slist_next (mac_blacklist_iter)) {
+			if (!nm_utils_hwaddr_valid (mac_blacklist_iter->data, ETH_ALEN)) {
+				g_warn_if_reached ();
+				return FALSE;
+			}
+
+			if (nm_utils_hwaddr_matches (mac_blacklist_iter->data, -1, perm_hw_addr, -1))
+				return FALSE;
 		}
-
-		if (perm_hw_addr && nm_utils_hwaddr_matches (mac_blacklist_iter->data, -1, perm_hw_addr, -1))
-			return FALSE;
-	}
+	} else if (mac)
+		return FALSE;
 
 	if (is_adhoc_wpa (connection))
 		return FALSE;
