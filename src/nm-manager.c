@@ -1019,6 +1019,9 @@ system_create_virtual_device (NMManager *self, NMConnection *connection)
 			g_clear_error (&error);
 			g_clear_object (&device);
 		}
+	} else {
+		nm_log_warn (LOGD_DEVICE, "(%s) failed to create virtual device for '%s'",
+		             nm_connection_get_id (connection), iface);
 	}
 
 	priv->ignore_link_added_cb--;
