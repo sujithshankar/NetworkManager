@@ -208,7 +208,7 @@ gboolean nm_dns_plugin_child_kill (NMDnsPlugin *self)
 	}
 
 	if (priv->pid) {
-		nm_utils_kill_child_async (priv->pid, SIGTERM, LOGD_DNS, priv->progname, 2000, NULL, NULL);
+		nm_utils_kill_child_sync (priv->pid, SIGTERM, LOGD_DNS, priv->progname, NULL, 500, 0);
 		priv->pid = 0;
 		g_free (priv->progname);
 		priv->progname = NULL;
