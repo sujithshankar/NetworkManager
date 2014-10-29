@@ -307,33 +307,40 @@ dm_child_setup (gpointer user_data G_GNUC_UNUSED)
 }
 
 static void
-kill_existing_for_iface (const char *iface, const char *pidfile)
+kill_existing_by_pidfile (const char *pidfile)
 {
 	char *contents = NULL;
 	glong pid;
 	char *proc_path = NULL;
 	char *cmdline_contents = NULL;
+	guint64 start_time;
+	const char *exe;
 
-	if (!g_file_get_contents (pidfile, &contents, NULL, NULL))
+	if (   !pidfile
+	    || !g_file_get_contents (pidfile, &contents, NULL, NULL))
+		return;
+
+	pid = nm_utils_ascii_str_to_int64 (contents, 10, 1, G_MAXLONG, 0);
+	if (pid == 0 || ((glong) (pid_t) pid) != pid)
 		goto out;
 
-	pid = strtol (contents, NULL, 10);
-	if (pid < 1 || pid > INT_MAX)
+	start_time = nm_utils_get_start_time_for_pid (pid);
+	if (start_time == 0)
 		goto out;
 
 	proc_path = g_strdup_printf ("/proc/%ld/cmdline", pid);
 	if (!g_file_get_contents (proc_path, &cmdline_contents, NULL, NULL))
 		goto out;
 
-	if (strstr (cmdline_contents, "bin/dnsmasq")) {
-		if (kill (pid, 0) == 0) {
-			nm_log_dbg (LOGD_SHARING, "Killing stale dnsmasq process %ld", pid);
-			kill (pid, SIGKILL);
-		}
-		unlink (pidfile);
+	exe = strrchr (cmdline_contents, '/');
+	if (   (exe && strcmp (exe, "dnsmasq") == 0)
+	    || (strcmp (cmdline_contents, DNSMASQ_PATH) == 0)) {
+		nm_utils_kill_process_sync (pid, start_time, SIGTERM, LOGD_SHARING,
+		                            "dnsmasq", 1000 / 5, 1000 / 20);
 	}
 
 out:
+	unlink (pidfile);
 	g_free (cmdline_contents);
 	g_free (proc_path);
 	g_free (contents);
@@ -354,7 +361,7 @@ nm_dnsmasq_manager_start (NMDnsMasqManager *manager,
 
 	priv = NM_DNSMASQ_MANAGER_GET_PRIVATE (manager);
 
-	kill_existing_for_iface (priv->iface, priv->pidfile);
+	kill_existing_by_pidfile (priv->pidfile);
 
 	dm_cmd = create_dm_cmd_line (priv->iface, nm_ip4_config_get_address (ip4_config, 0), priv->pidfile, error);
 	if (!dm_cmd)
