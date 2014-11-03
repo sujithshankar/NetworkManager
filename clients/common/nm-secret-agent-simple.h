@@ -41,7 +41,7 @@ typedef struct {
 } NmSecretAgentSimpleClass;
 
 typedef struct {
-	char *name, *value;
+	char *name, *prop_name, *value;
 	gboolean password;
 } NmSecretAgentSimpleSecret;
 
