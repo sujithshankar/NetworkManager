@@ -876,16 +876,6 @@ verify (NMSetting *setting, GSList *all_settings, GError **error)
 		}
 	}
 
-	if (priv->powersave > 1) {
-		g_set_error (error,
-		             NM_SETTING_WIRELESS_ERROR,
-		             NM_SETTING_WIRELESS_ERROR_INVALID_PROPERTY,
-		             _("'%u' is not a valid powersave value"),
-		             priv->powersave);
-		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_POWERSAVE);
-		return FALSE;
-	}
-
 	return TRUE;
 }
 
