@@ -190,6 +190,7 @@ NmcOutputField nmc_fields_setting_wireless[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_MTU, 6),                        /* 11 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_SEEN_BSSIDS, 35),               /* 12 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_HIDDEN, 10),                    /* 13 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_POWERSAVE, 10),                 /* 14 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_ALL     "name"","\
@@ -205,7 +206,8 @@ NmcOutputField nmc_fields_setting_wireless[] = {
                                             NM_SETTING_WIRELESS_MAC_ADDRESS_BLACKLIST","\
                                             NM_SETTING_WIRELESS_MTU","\
                                             NM_SETTING_WIRELESS_SEEN_BSSIDS","\
-                                            NM_SETTING_WIRELESS_HIDDEN
+                                            NM_SETTING_WIRELESS_HIDDEN"," \
+                                            NM_SETTING_WIRELESS_POWERSAVE
 #define NMC_FIELDS_SETTING_WIRELESS_COMMON  NMC_FIELDS_SETTING_WIRELESS_ALL
 
 /* Available fields for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
@@ -1519,6 +1521,15 @@ nmc_property_wireless_get_mtu (NMSetting *setting)
 		return g_strdup (_("auto"));
 	else
 		return g_strdup_printf ("%d", mtu);
+}
+
+static char *
+nmc_property_wifi_get_powersave (NMSetting *setting)
+{
+	NMSettingWireless *s_wireless = NM_SETTING_WIRELESS (setting);
+
+	return nm_setting_wireless_get_powersave (s_wireless) ?
+	    g_strdup (_("yes")) : g_strdup (_("no"));
 }
 
 /* --- NM_SETTING_WIRELESS_SECURITY_SETTING_NAME property get functions --- */
@@ -4167,6 +4178,27 @@ DEFINE_REMOVER_INDEX_OR_VALUE (nmc_property_wireless_remove_mac_address_blacklis
                                nm_setting_wireless_remove_mac_blacklist_item,
                                _validate_and_remove_wifi_mac_blacklist_item)
 
+/* 'powersave' */
+static gboolean
+nmc_property_wifi_set_powersave (NMSetting *setting, const char *prop, const char *val, GError **error)
+{
+	unsigned long powersave_int;
+	gboolean val_bool = FALSE;
+
+	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+	if (!nmc_string_to_uint (val, TRUE, 0, G_MAXUINT32, &powersave_int)) {
+		if (!nmc_string_to_bool (val, &val_bool, NULL)) {
+			g_set_error (error, 1, 0, _("'%s' is not a valid powersave value"), val);
+			return FALSE;
+		}
+		powersave_int = val_bool ? 1 : 0;
+	}
+
+	g_object_set (setting, prop, (guint32) powersave_int, NULL);
+	return TRUE;
+}
+
 /* --- NM_SETTING_WIRELESS_SECURITY_SETTING_NAME property setter functions --- */
 /* 'key-mgmt' */
 static const char *wifi_sec_valid_key_mgmts[] = { "none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap", NULL };
@@ -6122,6 +6154,13 @@ nmc_properties_init (void)
 	nmc_add_prop_funcs (GLUE (WIRELESS, HIDDEN),
 	                    nmc_property_wireless_get_hidden,
 	                    nmc_property_set_bool,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+	nmc_add_prop_funcs (GLUE (WIRELESS, POWERSAVE),
+	                    nmc_property_wifi_get_powersave,
+	                    nmc_property_wifi_set_powersave,
 	                    NULL,
 	                    NULL,
 	                    NULL,
