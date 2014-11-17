@@ -180,7 +180,7 @@ wifi_wext_set_powersave (WifiData *data, guint32 powersave)
 	strncpy (wrq.ifr_name, wext->parent.iface, IFNAMSIZ);
 	if (ioctl (wext->fd, SIOCSIWPOWER, &wrq) < 0) {
 		if (errno != ENODEV) {
-			nm_log_err (LOGD_HW | LOGD_WIFI, "(%s): error setting powersave %d",
+			nm_log_err (LOGD_HW | LOGD_WIFI, "(%s): error setting powersave %" G_GUINT32_FORMAT,
 			            wext->parent.iface, powersave);
 		}
 		return FALSE;

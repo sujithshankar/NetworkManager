@@ -1399,6 +1399,12 @@ nm_platform_wifi_set_mode (int ifindex, NM80211Mode mode)
 	klass->wifi_set_mode (platform, ifindex, mode);
 }
 
+static void
+wifi_set_powersave (NMPlatform *p, int ifindex, guint32 powersave)
+{
+	/* empty */
+}
+
 void
 nm_platform_wifi_set_powersave (int ifindex, guint32 powersave)
 {
@@ -2717,6 +2723,8 @@ static void
 nm_platform_class_init (NMPlatformClass *platform_class)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (platform_class);
+
+	platform_class->wifi_set_powersave = wifi_set_powersave;
 
 	/* Signals */
 	SIGNAL (SIGNAL_LINK_CHANGED, log_link)
