@@ -274,7 +274,9 @@ Copyright 2010 - 2014 Red Hat, Inc.
       <variablelist>
 	<varlistentry>
 	  <term><varname>hostname</varname></term>
-	  <listitem><para>Set a persistent hostname.</para></listitem>
+	  <listitem><para>Set a persistent hostname.
+            This option is obsolete. The primary place for hostname is /etc/hostname file.
+          </para></listitem>
 	</varlistentry>
 	<varlistentry>
 	  <term><varname>unmanaged-devices</varname></term>
