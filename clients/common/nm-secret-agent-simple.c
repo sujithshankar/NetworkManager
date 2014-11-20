@@ -583,33 +583,26 @@ nm_secret_agent_simple_delete_secrets (NMSecretAgentOld                  *agent,
 }
 
 /**
- * nm_secret_agent_simple_set_connection_path:
- * @self: the #NMSecretAgentSimple
- * @path: the path of the connection the agent handle secrets for
- *
- * Sets the path for a new #NMSecretAgentSimple.
- */
-void
-nm_secret_agent_simple_set_connection_path (NMSecretAgentSimple *self, const char *path)
-{
-	NMSecretAgentSimplePrivate *priv = NM_SECRET_AGENT_SIMPLE_GET_PRIVATE (self);
-
-	g_free (priv->path);
-	priv->path = g_strdup (path);
-}
-
-/**
  * nm_secret_agent_simple_enable:
  * @self: the #NMSecretAgentSimple
+ * @path: (allow-none): the path of the connection (if any) to handle secrets
+ *        for.  If %NULL, secrets for any connection will be handled.
  *
- * Enables servicing the requests including the already queued ones.
+ * Enables servicing the requests including the already queued ones.  If @path
+ * is given, the agent will only handle requests for connections that match
+ * @path.
  */
 void
-nm_secret_agent_simple_enable (NMSecretAgentSimple *self)
+nm_secret_agent_simple_enable (NMSecretAgentSimple *self, const char *path)
 {
 	NMSecretAgentSimplePrivate *priv = NM_SECRET_AGENT_SIMPLE_GET_PRIVATE (self);
 	GList *requests, *iter;
 	GError *error;
+
+	if (g_strcmp0 (path, priv->path) != 0) {
+		g_free (priv->path);
+		priv->path = g_strdup (path);
+	}
 
 	if (priv->enabled)
 		return;
