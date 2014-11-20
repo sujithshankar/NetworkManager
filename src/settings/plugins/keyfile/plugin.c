@@ -449,12 +449,13 @@ add_connection (NMSystemConfigInterface *config,
 static gboolean
 parse_key_file_allow_none (SCPluginKeyfilePrivate  *priv,
                            GKeyFile                *key_file,
+                           GKeyFileFlags            flags,
                            GError                 **error)
 {
 	gboolean ret = FALSE;
 	GError *local_error = NULL;
 
-	if (!g_key_file_load_from_file (key_file, priv->conf_file, G_KEY_FILE_NONE, &local_error)) {
+	if (!g_key_file_load_from_file (key_file, priv->conf_file, flags, &local_error)) {
 		if (g_error_matches (local_error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
 			g_clear_error (&local_error);
 		else {
@@ -483,7 +484,7 @@ get_unmanaged_specs (NMSystemConfigInterface *config)
 		return NULL;
 
 	key_file = g_key_file_new ();
-	if (!parse_key_file_allow_none (priv, key_file, &error))
+	if (!parse_key_file_allow_none (priv, key_file, G_KEY_FILE_KEEP_COMMENTS, &error))
 		goto out;
 
 	str = g_key_file_get_value (key_file, "keyfile", "unmanaged-devices", NULL);
@@ -541,7 +542,7 @@ plugin_get_hostname (SCPluginKeyfile *plugin)
 		return NULL;
 
 	key_file = g_key_file_new ();
-	if (!parse_key_file_allow_none (priv, key_file, &error))
+	if (!parse_key_file_allow_none (priv, key_file, G_KEY_FILE_KEEP_COMMENTS, &error))
 		goto out;
 
 	hostname = g_key_file_get_value (key_file, "keyfile", "hostname", NULL);
@@ -584,7 +585,7 @@ plugin_set_hostname (SCPluginKeyfile *plugin, const char *hostname)
 		goto out;
 
 	key_file = g_key_file_new ();
-	if (!parse_key_file_allow_none (priv, key_file, &error))
+	if (!parse_key_file_allow_none (priv, key_file, G_KEY_FILE_KEEP_COMMENTS, &error))
 		goto out;
 
 	if (g_key_file_get_value (key_file, "keyfile", "hostname", NULL)) {
