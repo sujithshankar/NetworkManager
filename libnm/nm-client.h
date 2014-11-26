@@ -138,6 +138,8 @@ typedef enum {
  *   operation succeeded, but the object that was allegedly created (eg,
  *   #NMRemoteConnection, #NMActiveConnection) was apparently destroyed before
  *   #NMClient could create a representation of it.
+ * @NM_CLIENT_ERROR_ACTIVE_CONNECTION_REMOVED: active connection was removed, e.g.
+ *   due to a failure while connecting
  *
  * Describes errors that may result from operations involving a #NMClient.
  *
@@ -148,6 +150,7 @@ typedef enum {
 	NM_CLIENT_ERROR_FAILED = 0,
 	NM_CLIENT_ERROR_MANAGER_NOT_RUNNING,
 	NM_CLIENT_ERROR_OBJECT_CREATION_FAILED,
+	NM_CLIENT_ERROR_ACTIVE_CONNECTION_REMOVED,
 } NMClientError;
 
 #define NM_CLIENT_ERROR nm_client_error_quark ()
