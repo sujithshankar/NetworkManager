@@ -854,8 +854,8 @@ active_removed (NMObject *object, NMActiveConnection *active, gpointer user_data
 		return;
 
 	error = g_error_new_literal (NM_CLIENT_ERROR,
-	                             NM_CLIENT_ERROR_FAILED,
-	                             _("Active connection could not be attached to the device"));
+	                             NM_CLIENT_ERROR_OBJECT_CREATION_FAILED,
+	                             _("Active connection was removed"));
 	activate_info_complete (info, NULL, error);
 	g_clear_error (&error);
 }
