@@ -977,12 +977,9 @@ nmc_secrets_requested (NMSecretAgentSimple *agent,
 	if (success)
 		nm_secret_agent_simple_response (agent, request_id, secrets);
 	else {
-		/* Unregister our secret agent on failure, so that another agent
-		 * may be tried */
-		if (nmc->secret_agent) {
-			nm_secret_agent_old_unregister (nmc->secret_agent, NULL, NULL);
-			g_clear_object (&nmc->secret_agent);
-		}
+		/* Return empty secrets so that another agent may be tried */
+		g_ptr_array_set_size (secrets, 0);
+		nm_secret_agent_simple_response (agent, request_id, secrets);
         }
 }
 
