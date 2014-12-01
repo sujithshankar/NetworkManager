@@ -769,7 +769,9 @@ nm_ip4_config_intersect (NMIP4Config *dst, const NMIP4Config *src)
 			i++;
 	}
 
-	if (!nm_ip4_config_get_num_addresses (dst))
+	/* default gateway */
+	if (   !nm_ip4_config_get_num_addresses (dst)
+	    || (nm_ip4_config_get_gateway (src) != nm_ip4_config_get_gateway (dst)))
 		nm_ip4_config_set_gateway (dst, 0);
 
 	/* routes */

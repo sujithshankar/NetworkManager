@@ -806,6 +806,7 @@ nm_ip6_config_intersect (NMIP6Config *dst, const NMIP6Config *src)
 {
 	guint i;
 	gint idx;
+	const struct in6_addr *dst_tmp, *src_tmp;
 
 	g_return_if_fail (src != NULL);
 	g_return_if_fail (dst != NULL);
@@ -830,8 +831,15 @@ nm_ip6_config_intersect (NMIP6Config *dst, const NMIP6Config *src)
 			i++;
 	}
 
-	if (!nm_ip6_config_get_num_addresses (dst))
-		nm_ip6_config_set_gateway (dst, NULL);
+	/* default gateway */
+	dst_tmp = nm_ip6_config_get_gateway (dst);
+	if (dst_tmp) {
+		src_tmp = nm_ip6_config_get_gateway (src);
+		if (   !nm_ip6_config_get_num_addresses (dst)
+		    || !src_tmp
+		    || !IN6_ARE_ADDR_EQUAL (src_tmp, dst_tmp))
+			nm_ip6_config_set_gateway (dst, NULL);
+	}
 
 	/* routes */
 	for (i = 0; i < nm_ip6_config_get_num_routes (dst); ) {
