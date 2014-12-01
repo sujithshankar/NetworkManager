@@ -2782,7 +2782,7 @@ _device_get_default_route_from_platform (NMDevice *self, int addr_family, NMPlat
 /*********************************************/
 
 static void
-init_con_ipx_config (NMDevice *self)
+ensure_con_ipx_config (NMDevice *self)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	NMConnection *connection;
@@ -2866,7 +2866,7 @@ ip4_config_merge_and_apply (NMDevice *self,
 
 	composite = nm_ip4_config_new ();
 
-	init_con_ipx_config (self);
+	ensure_con_ipx_config (self);
 
 	if (priv->dev_ip4_config)
 		nm_ip4_config_merge (composite, priv->dev_ip4_config);
@@ -3433,7 +3433,7 @@ ip6_config_merge_and_apply (NMDevice *self,
 	/* If no config was passed in, create a new one */
 	composite = nm_ip6_config_new ();
 
-	init_con_ipx_config (self);
+	ensure_con_ipx_config (self);
 
 	/* Merge all the IP configs into the composite config */
 	if (priv->ac_ip6_config)
@@ -6521,8 +6521,12 @@ update_ip_config (NMDevice *self, gboolean initial)
 			g_clear_object (&priv->dev_ip4_config);
 			capture_lease_config (self, priv->ext_ip4_config, &priv->dev_ip4_config, NULL, NULL);
 		}
-		init_con_ipx_config (self);
+		ensure_con_ipx_config (self);
 
+		/* This function was called upon external changes. Remove the configuration
+		 * (adresses,routes) that is no longer present externally from the interal
+		 * config. This way, we don't readd addresses that were manually removed
+		 * by the user. */
 		if (priv->con_ip4_config)
 			nm_ip4_config_intersect (priv->con_ip4_config, priv->ext_ip4_config);
 		if (priv->dev_ip4_config)
@@ -6532,6 +6536,9 @@ update_ip_config (NMDevice *self, gboolean initial)
 		if (priv->wwan_ip4_config)
 			nm_ip4_config_intersect (priv->wwan_ip4_config, priv->ext_ip4_config);
 
+		/* Remove parts from ext_ip4_config to only contain the information that
+		 * was configured externally -- we already have the same configuration from
+		 * internal origins. */
 		if (priv->con_ip4_config)
 			nm_ip4_config_subtract (priv->ext_ip4_config, priv->con_ip4_config);
 		if (priv->dev_ip4_config)
@@ -6553,8 +6560,12 @@ update_ip_config (NMDevice *self, gboolean initial)
 		linklocal6_just_completed = priv->linklocal6_timeout_id &&
 		                            have_ip6_address (priv->ext_ip6_config, TRUE);
 
-		init_con_ipx_config (self);
+		ensure_con_ipx_config (self);
 
+		/* This function was called upon external changes. Remove the configuration
+		 * (adresses,routes) that is no longer present externally from the interal
+		 * config. This way, we don't readd addresses that were manually removed
+		 * by the user. */
 		if (priv->con_ip6_config)
 			nm_ip6_config_subtract (priv->con_ip6_config, priv->ext_ip6_config);
 		if (priv->ac_ip6_config)
@@ -6566,6 +6577,9 @@ update_ip_config (NMDevice *self, gboolean initial)
 		if (priv->vpn6_config)
 			nm_ip6_config_subtract (priv->vpn6_config, priv->ext_ip6_config);
 
+		/* Remove parts from ext_ip6_config to only contain the information that
+		 * was configured externally -- we already have the same configuration from
+		 * internal origins. */
 		if (priv->con_ip6_config)
 			nm_ip6_config_subtract (priv->ext_ip6_config, priv->con_ip6_config);
 		if (priv->ac_ip6_config)
