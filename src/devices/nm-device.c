@@ -1153,6 +1153,14 @@ update_for_ip_ifname_change (NMDevice *self)
 	}
 }
 
+static gboolean
+is_software_external (NMDevice *self)
+{
+	return   nm_device_is_software (self)
+	      && !nm_device_get_is_nm_owned (self)
+	      && NM_DEVICE_GET_PRIVATE (self)->ifindex > 0;
+}
+
 static void
 device_set_master (NMDevice *self, int ifindex)
 {
@@ -1228,10 +1236,35 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 	if (klass->link_changed)
 		klass->link_changed (self, info);
 
-
 	/* Update DHCP, etc, if needed */
 	if (ip_ifname_changed)
 		update_for_ip_ifname_change (self);
+
+	/* Manage externally-created software interfaces only when they are IFF_UP */
+	if (is_software_external (self) && (nm_device_get_state (self) <= NM_DEVICE_STATE_DISCONNECTED)) {
+		gboolean external_down = nm_device_get_unmanaged_flag (self, NM_UNMANAGED_EXTERNAL_DOWN);
+
+		if (external_down && info->up) {
+			/* Resetting the EXTERNAL_DOWN flag may change the device's state
+			 * to UNAVAILABLE.  To ensure that the state change doesn't touch
+			 * the device before assumption occurs, pass
+			 * NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED as the reason.
+			 */
+			nm_device_set_unmanaged (self,
+			                         NM_UNMANAGED_EXTERNAL_DOWN,
+			                         FALSE,
+			                         NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED);
+			nm_device_queue_recheck_assume (self);
+		} else if (!external_down && !info->up) {
+			/* If the device is already disconnected and is set !IFF_UP,
+			 * unmanage it.
+			 */
+			nm_device_set_unmanaged (self,
+			                         NM_UNMANAGED_EXTERNAL_DOWN,
+			                         TRUE,
+			                         NM_DEVICE_STATE_REASON_UNKNOWN);
+		}
+	}
 }
 
 static void
@@ -6607,7 +6640,7 @@ nm_device_get_managed (NMDevice *self)
 gboolean
 nm_device_get_unmanaged_flag (NMDevice *self, NMUnmanagedFlags flag)
 {
-	return NM_DEVICE_GET_PRIVATE (self)->unmanaged_flags & flag;
+	return NM_FLAGS_ANY (NM_DEVICE_GET_PRIVATE (self)->unmanaged_flags, flag);
 }
 
 /**
@@ -6697,6 +6730,28 @@ nm_device_set_initial_unmanaged_flag (NMDevice *self,
 		priv->unmanaged_flags |= flag;
 	else
 		priv->unmanaged_flags &= ~flag;
+}
+
+/**
+ * nm_device_update_initial_unmanaged_flags():
+ * @self: the #NMDevice
+ *
+ * Called before device export to allow the device to set any additional
+ * unmanaged flags.
+ */
+void
+nm_device_update_initial_unmanaged_flags (NMDevice *self)
+{
+	NMDevicePrivate *priv;
+
+	g_return_if_fail (NM_IS_DEVICE (self));
+
+	priv = NM_DEVICE_GET_PRIVATE (self);
+	g_return_if_fail (priv->path == NULL);
+
+	/* Do not manage externally created software devices until they are IFF_UP */
+	if (is_software_external (self) && !nm_platform_link_is_up (priv->ifindex))
+		nm_device_set_initial_unmanaged_flag (self, NM_UNMANAGED_EXTERNAL_DOWN, TRUE);
 }
 
 void
@@ -7353,6 +7408,17 @@ notify_ip_properties (NMDevice *self)
 }
 
 static void
+ip6_managed_setup (NMDevice *self)
+{
+	set_nm_ipv6ll (self, TRUE);
+	set_disable_ipv6 (self, "1");
+	nm_device_ipv6_sysctl_set (self, "accept_ra_defrtr", "0");
+	nm_device_ipv6_sysctl_set (self, "accept_ra_pinfo", "0");
+	nm_device_ipv6_sysctl_set (self, "accept_ra_rtr_pref", "0");
+	nm_device_ipv6_sysctl_set (self, "use_tempaddr", "0");
+}
+
+static void
 _set_state_full (NMDevice *self,
                  NMDeviceState state,
                  NMDeviceStateReason reason,
@@ -7428,14 +7494,8 @@ _set_state_full (NMDevice *self,
 	case NM_DEVICE_STATE_UNAVAILABLE:
 		if (old_state == NM_DEVICE_STATE_UNMANAGED) {
 			save_ip6_properties (self);
-			if (reason != NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED) {
-				set_nm_ipv6ll (self, TRUE);
-				set_disable_ipv6 (self, "1");
-				nm_device_ipv6_sysctl_set (self, "accept_ra_defrtr", "0");
-				nm_device_ipv6_sysctl_set (self, "accept_ra_pinfo", "0");
-				nm_device_ipv6_sysctl_set (self, "accept_ra_rtr_pref", "0");
-				nm_device_ipv6_sysctl_set (self, "use_tempaddr", "0");
-			}
+			if (reason != NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED)
+				ip6_managed_setup (self);
 		}
 
 		if (old_state == NM_DEVICE_STATE_UNMANAGED || priv->firmware_missing) {
@@ -7462,6 +7522,13 @@ _set_state_full (NMDevice *self,
 			set_nm_ipv6ll (self, TRUE);
 
 			nm_device_cleanup (self, reason);
+		} else if (old_state < NM_DEVICE_STATE_DISCONNECTED) {
+			if (reason != NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED) {
+				/* Ensure IPv6 is set up as it may not have been done when
+				 * entering the UNAVAILABLE state depending on the reason.
+				 */
+				ip6_managed_setup (self);
+			}
 		}
 		break;
 	case NM_DEVICE_STATE_NEED_AUTH:

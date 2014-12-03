@@ -1820,6 +1820,8 @@ add_device (NMManager *self, NMDevice *device, gboolean try_assume)
 	sleeping = manager_sleeping (self);
 	nm_device_set_initial_unmanaged_flag (device, NM_UNMANAGED_INTERNAL, sleeping);
 
+	nm_device_update_initial_unmanaged_flags (device);
+
 	nm_device_dbus_export (device);
 	nm_device_finish_init (device);
 
