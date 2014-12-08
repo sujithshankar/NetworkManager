@@ -850,6 +850,7 @@ claim_connection (NMSettings *self,
 	GHashTableIter iter;
 	gpointer data;
 	char *path;
+	NMSettingsConnection *existing;
 
 	g_return_if_fail (NM_IS_SETTINGS_CONNECTION (connection));
 	g_return_if_fail (nm_connection_get_path (NM_CONNECTION (connection)) == NULL);
@@ -865,6 +866,15 @@ claim_connection (NMSettings *self,
 		nm_log_warn (LOGD_SETTINGS, "plugin provided invalid connection: %s",
 		             error->message);
 		g_error_free (error);
+		return;
+	}
+
+	existing = nm_settings_get_connection_by_uuid (self, nm_connection_get_uuid (NM_CONNECTION (connection)));
+	if (existing) {
+		/* Cannot add duplicate connections by UUID. It is the responsibility of the
+		 * caller to ensure no collision. */
+		nm_log_warn (LOGD_SETTINGS, "plugin provided duplicate connection with UUID %s",
+		             nm_connection_get_uuid (NM_CONNECTION (connection)));
 		return;
 	}
 
