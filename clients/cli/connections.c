@@ -1739,6 +1739,35 @@ device_state_cb (NMDevice *device, GParamSpec *pspec, gpointer user_data)
 	}
 }
 
+static const char *nmc_activate_error = NULL;
+
+static void
+store_device_error_cb (NMDevice *device,
+                       NMDeviceState new_state,
+                       NMDeviceState old_state,
+                       NMDeviceStateReason reason)
+{
+	/* Store the failure error message */
+	if ((new_state == NM_DEVICE_STATE_FAILED || new_state == NM_DEVICE_STATE_DEACTIVATING))
+		nmc_activate_error = nmc_device_reason_to_string (reason);
+}
+
+static gboolean
+deactivated_idle_func (NmCli *nmc)
+{
+	static int counter = 5;
+
+	counter--;
+	if (nmc_activate_error || counter == 0) {
+		g_string_printf (nmc->return_text, _("Error: Connection activation failed%s%s."),
+		                 nmc_activate_error ? ": " : "", nmc_activate_error ? nmc_activate_error : "");
+		nmc->return_value = NMC_RESULT_ERROR_CON_ACTIVATION;
+		quit ();
+		return FALSE;
+	}
+	return TRUE;
+}
+
 static void
 active_connection_state_cb (NMActiveConnection *active, GParamSpec *pspec, gpointer user_data)
 {
@@ -1755,10 +1784,9 @@ active_connection_state_cb (NMActiveConnection *active, GParamSpec *pspec, gpoin
 		g_object_unref (active);
 		quit ();
 	} else if (state == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED) {
-		g_string_printf (nmc->return_text, _("Error: Connection activation failed."));
-		nmc->return_value = NMC_RESULT_ERROR_CON_ACTIVATION;
 		g_object_unref (active);
-		quit ();
+		/* Postpone quit so that we can obtain the error. */
+		g_timeout_add (100, (GSourceFunc) deactivated_idle_func, nmc);
 	} else if (state == NM_ACTIVE_CONNECTION_STATE_ACTIVATING) {
 		/* activating master connection does not automatically activate any slaves, so their
 		 * active connection state will not progress beyond ACTIVATING state.
@@ -2107,6 +2135,9 @@ nmc_activate_connection (NmCli *nmc,
 	                                     NULL,
 	                                     callback,
 	                                     info);
+	if (device)
+		g_signal_connect (device, "state-changed", G_CALLBACK (store_device_error_cb), NULL);
+
 	return TRUE;
 }
 
