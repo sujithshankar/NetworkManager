@@ -100,6 +100,23 @@ remove_connection (SCPluginKeyfile *self, NMKeyfileConnection *connection)
 	g_return_if_fail (removed);
 }
 
+static NMKeyfileConnection *
+find_by_path (SCPluginKeyfile *self, const char *path)
+{
+	SCPluginKeyfilePrivate *priv = SC_PLUGIN_KEYFILE_GET_PRIVATE (self);
+	GHashTableIter iter;
+	NMKeyfileConnection *candidate = NULL;
+
+	g_return_val_if_fail (path != NULL, NULL);
+
+	g_hash_table_iter_init (&iter, priv->connections);
+	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &candidate)) {
+		if (g_strcmp0 (path, nm_keyfile_connection_get_path (candidate)) == 0)
+			return candidate;
+	}
+	return NULL;
+}
+
 static void
 update_connection (SCPluginKeyfile *self,
                    NMKeyfileConnection *connection,
@@ -133,23 +150,6 @@ update_connection (SCPluginKeyfile *self,
 		g_assert_no_error (error);
 	}
 	g_object_unref (tmp);
-}
-
-static NMKeyfileConnection *
-find_by_path (SCPluginKeyfile *self, const char *path)
-{
-	SCPluginKeyfilePrivate *priv = SC_PLUGIN_KEYFILE_GET_PRIVATE (self);
-	GHashTableIter iter;
-	NMKeyfileConnection *candidate = NULL;
-
-	g_return_val_if_fail (path != NULL, NULL);
-
-	g_hash_table_iter_init (&iter, priv->connections);
-	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &candidate)) {
-		if (g_strcmp0 (path, nm_keyfile_connection_get_path (candidate)) == 0)
-			return candidate;
-	}
-	return NULL;
 }
 
 static void
