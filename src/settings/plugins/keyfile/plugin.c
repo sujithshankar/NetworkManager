@@ -128,8 +128,9 @@ update_connection (SCPluginKeyfile *self,
 		                                              FALSE,  /* don't set Unsaved */
 		                                              &error)) {
 			/* Shouldn't ever get here as 'new' was verified by the reader already */
-			g_assert_no_error (error);
+			g_assert_not_reached ();
 		}
+		g_assert_no_error (error);
 	}
 	g_object_unref (tmp);
 }
@@ -182,8 +183,9 @@ new_connection (SCPluginKeyfile *self,
 		                                              FALSE,  /* don't set Unsaved */
 		                                              &error)) {
 			/* Shouldn't ever get here as 'tmp' was verified by the reader already */
-			g_assert_no_error (error);
+			g_assert_not_reached ();
 		}
+		g_assert_no_error (error);
 		g_object_unref (tmp);
 		if (out_old_path)
 			*out_old_path = g_strdup (nm_keyfile_connection_get_path (connection));
