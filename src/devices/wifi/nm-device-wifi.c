@@ -907,19 +907,11 @@ _internal_check_connection_available (NMDevice *device,
 static gboolean
 check_connection_available (NMDevice *device,
                             NMConnection *connection,
+                            gboolean for_user_activation_request,
                             const char *specific_object)
 {
-	return _internal_check_connection_available (device, connection, specific_object, FALSE);
-}
-
-/* FIXME: remove this function when we require the 'hidden' property to be
- * set before a hidden connection can be activated.
- */
-static gboolean
-check_connection_available_wifi_hidden (NMDevice *device,
-                                        NMConnection *connection)
-{
-	return _internal_check_connection_available (device, connection, NULL, TRUE);
+	return _internal_check_connection_available (device, connection, specific_object,
+	                                             for_user_activation_request);
 }
 
 /*
@@ -3335,7 +3327,6 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 	parent_class->is_available = is_available;
 	parent_class->check_connection_compatible = check_connection_compatible;
 	parent_class->check_connection_available = check_connection_available;
-	parent_class->check_connection_available_wifi_hidden = check_connection_available_wifi_hidden;
 	parent_class->complete_connection = complete_connection;
 	parent_class->set_enabled = set_enabled;
 
