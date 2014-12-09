@@ -139,6 +139,7 @@ nm_ifcfg_connection_new (NMConnection *source,
 	if (nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (object),
 	                                             tmp,
 	                                             update_unsaved,
+	                                             NULL,
 	                                             error)) {
 		/* Set the path and start monitoring */
 		if (full_path)
