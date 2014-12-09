@@ -447,6 +447,7 @@ gboolean
 nm_settings_connection_replace_settings (NMSettingsConnection *self,
                                          NMConnection *new_connection,
                                          gboolean update_unsaved,
+                                         const char *log_diff_name,
                                          GError **error)
 {
 	NMSettingsConnectionPrivate *priv;
@@ -472,7 +473,8 @@ nm_settings_connection_replace_settings (NMSettingsConnection *self,
 	 */
 	g_signal_handlers_block_by_func (self, G_CALLBACK (changed_cb), GUINT_TO_POINTER (TRUE));
 
-	nm_utils_log_connection_diff (new_connection, NM_CONNECTION (self), LOGL_DEBUG, LOGD_CORE, "update connection", "++ ");
+	if (log_diff_name)
+		nm_utils_log_connection_diff (new_connection, NM_CONNECTION (self), LOGL_DEBUG, LOGD_CORE, log_diff_name, "++ ");
 
 	nm_connection_replace_settings_from_connection (NM_CONNECTION (self), new_connection);
 	nm_settings_connection_set_flags (self,
@@ -535,7 +537,7 @@ nm_settings_connection_replace_and_commit (NMSettingsConnection *self,
 	g_return_if_fail (NM_IS_SETTINGS_CONNECTION (self));
 	g_return_if_fail (NM_IS_CONNECTION (new_connection));
 
-	if (nm_settings_connection_replace_settings (self, new_connection, TRUE, &error)) {
+	if (nm_settings_connection_replace_settings (self, new_connection, TRUE, "replace-and-commit-disk", &error)) {
 		nm_settings_connection_commit_changes (self, callback, user_data);
 	} else {
 		g_assert (error);
@@ -1355,7 +1357,7 @@ update_auth_cb (NMSettingsConnection *self,
 		                                           con_update_cb,
 		                                           info);
 	} else {
-		if (!nm_settings_connection_replace_settings (self, info->new_settings, TRUE, &local))
+		if (!nm_settings_connection_replace_settings (self, info->new_settings, TRUE, "replace-and-commit-memory", &local))
 			g_assert (local);
 		con_update_cb (self, local, info);
 		g_clear_error (&local);
