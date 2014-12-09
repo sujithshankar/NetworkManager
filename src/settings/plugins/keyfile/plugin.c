@@ -181,6 +181,7 @@ new_connection (SCPluginKeyfile *self,
 		if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (connection),
 		                                              NM_CONNECTION (tmp),
 		                                              FALSE,  /* don't set Unsaved */
+		                                              "keyfile-update",
 		                                              &error)) {
 			/* Shouldn't ever get here as 'tmp' was verified by the reader already */
 			g_assert_not_reached ();
