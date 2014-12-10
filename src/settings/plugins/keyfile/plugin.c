@@ -45,6 +45,7 @@
 #include "writer.h"
 #include "common.h"
 #include "utils.h"
+#include "gsystem-local-alloc.h"
 
 static char *plugin_get_hostname (SCPluginKeyfile *plugin);
 static void system_config_interface_init (NMSystemConfigInterface *system_config_interface_class);
@@ -119,12 +120,16 @@ find_by_path (SCPluginKeyfile *self, const char *path)
 
 /* update_connection:
  * @self: the plugin instance
+ * @source: if %NULL, this re-reads the connection from @full_path
+ *   and updates it. When passing @source, this adds a connection from
+ *   memory.
  * @full_path: the filename of the keyfile to be loaded
  * @connection: an existing connection that might be updated.
  *   If given, @connection must be an existing connection that is currently
  *   owned by the plugin.
  * @protected_connections: (allow-none): if given, we only update an
  *   existing connection if it is not contained in this hash.
+ * @error: error in case of failure
  *
  * Loads a connection from file @full_path. This can both be used to
  * load a connection initially or to update an existing connection.
@@ -138,23 +143,31 @@ find_by_path (SCPluginKeyfile *self, const char *path)
  * */
 static NMKeyfileConnection *
 update_connection (SCPluginKeyfile *self,
+                   NMConnection *source,
                    const char *full_path,
                    NMKeyfileConnection *connection,
-                   GHashTable *protected_connections)
+                   GHashTable *protected_connections,
+                   GError **error)
 {
 	SCPluginKeyfilePrivate *priv = SC_PLUGIN_KEYFILE_GET_PRIVATE (self);
 	NMKeyfileConnection *connection_new;
 	NMKeyfileConnection *connection_by_uuid;
-	GError *error = NULL;
+	GError *local = NULL;
 	const char *uuid;
 
-	connection_new = nm_keyfile_connection_new (NULL, full_path, &error);
+	g_return_val_if_fail (!source || NM_IS_CONNECTION (source), NULL);
+	g_return_val_if_fail (full_path || source, NULL);
+
+	connection_new = nm_keyfile_connection_new (source, full_path, &local);
 	if (!connection_new) {
 		/* Error; remove the connection */
-		nm_log_warn (LOGD_SETTINGS, "keyfile: error loading connection from file %s: %s", full_path, error->message);
-		g_clear_error (&error);
+		if (source)
+			nm_log_warn (LOGD_SETTINGS, "keyfile: error creating connection %s: %s", nm_connection_get_uuid (source), local->message);
+		else
+			nm_log_warn (LOGD_SETTINGS, "keyfile: error loading connection from file %s: %s", full_path, local->message);
 		if (connection)
 			remove_connection (self, connection);
+		g_propagate_error (error, local);
 		return NULL;
 	}
 
@@ -171,8 +184,13 @@ update_connection (SCPluginKeyfile *self,
 	if (   connection_by_uuid
 	    && protected_connections
 	    && g_hash_table_contains (protected_connections, connection_by_uuid)) {
-		nm_log_warn (LOGD_SETTINGS, "keyfile: cannot load %s due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, full_path, NM_KEYFILE_CONNECTION_LOG_ARG (connection_by_uuid));
+		if (source)
+			nm_log_warn (LOGD_SETTINGS, "keyfile: cannot update connection due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_by_uuid));
+		else
+			nm_log_warn (LOGD_SETTINGS, "keyfile: cannot load %s due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, full_path, NM_KEYFILE_CONNECTION_LOG_ARG (connection_by_uuid));
 		g_object_unref (connection_new);
+		g_set_error_literal (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
+		                      "Skip updating protected connection during reload");
 		return NULL;
 	}
 
@@ -193,7 +211,9 @@ update_connection (SCPluginKeyfile *self,
 		/* An existing connection changed. */
 
 		old_path = nm_keyfile_connection_get_path (connection_by_uuid);
-		if (!g_strcmp0 (old_path, nm_keyfile_connection_get_path (connection_new)))
+		if (source)
+			nm_log_info (LOGD_SETTINGS, "keyfile: update "NM_KEYFILE_CONNECTION_LOG_FMT" from %s", NM_KEYFILE_CONNECTION_LOG_ARG (connection_new), NM_KEYFILE_CONNECTION_LOG_PATH (old_path));
+		else if (!g_strcmp0 (old_path, nm_keyfile_connection_get_path (connection_new)))
 			nm_log_info (LOGD_SETTINGS, "keyfile: update "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_new));
 		else if (old_path)
 			nm_log_info (LOGD_SETTINGS, "keyfile: rename \"%s\" to "NM_KEYFILE_CONNECTION_LOG_FMT, old_path, NM_KEYFILE_CONNECTION_LOG_ARG (connection_new));
@@ -204,23 +224,30 @@ update_connection (SCPluginKeyfile *self,
 		                                              NM_CONNECTION (connection_new),
 		                                              FALSE,  /* don't set Unsaved */
 		                                              "keyfile-update",
-		                                              &error)) {
+		                                              &local)) {
 			/* Shouldn't ever get here as 'connection_new' was verified by the reader already */
 			g_assert_not_reached ();
 		}
-		g_assert_no_error (error);
+		g_assert_no_error (local);
 		nm_keyfile_connection_set_path (connection_by_uuid, full_path);
 		g_object_unref (connection_new);
 		return connection_by_uuid;
 	} else {
-		nm_log_info (LOGD_SETTINGS, "keyfile: new connection "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_new));
+		if (source)
+			nm_log_info (LOGD_SETTINGS, "keyfile: add connection "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_new));
+		else
+			nm_log_info (LOGD_SETTINGS, "keyfile: new connection "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_new));
 		g_hash_table_insert (priv->connections, g_strdup (uuid), connection_new);
 
 		g_signal_connect (connection_new, NM_SETTINGS_CONNECTION_REMOVED,
 		                  G_CALLBACK (connection_removed_cb),
 		                  self);
 
-		g_signal_emit_by_name (self, NM_SYSTEM_CONFIG_INTERFACE_CONNECTION_ADDED, connection_new);
+		if (!source) {
+			/* Only raise the signal if we were called without source, i.e. if we read the connection from file.
+			 * Otherwise, we were called by add_connection() which does not expect the signal. */
+			g_signal_emit_by_name (self, NM_SYSTEM_CONFIG_INTERFACE_CONNECTION_ADDED, connection_new);
+		}
 		return connection_new;
 	}
 }
@@ -252,7 +279,7 @@ dir_changed (GFileMonitor *monitor,
 		break;
 	case G_FILE_MONITOR_EVENT_CREATED:
 	case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
-		update_connection (SC_PLUGIN_KEYFILE (config), full_path, connection, NULL);
+		update_connection (SC_PLUGIN_KEYFILE (config), NULL, full_path, connection, NULL, NULL);
 		break;
 	default:
 		break;
@@ -417,7 +444,7 @@ read_connections (NMSystemConfigInterface *config)
 	g_hash_table_destroy (paths);
 
 	for (i = 0; i < filenames->len; i++) {
-		connection = update_connection (self, filenames->pdata[i], NULL, alive_connections);
+		connection = update_connection (self, NULL, filenames->pdata[i], NULL, alive_connections, NULL);
 		if (connection)
 			g_hash_table_add (alive_connections, connection);
 	}
@@ -472,7 +499,7 @@ load_connection (NMSystemConfigInterface *config,
 	if (nm_keyfile_plugin_utils_should_ignore_file (filename + dir_len + 1))
 		return FALSE;
 
-	connection = update_connection (self, filename, find_by_path (self, filename), NULL);
+	connection = update_connection (self, NULL, filename, find_by_path (self, filename), NULL, NULL);
 
 	return (connection != NULL);
 }
@@ -490,27 +517,13 @@ add_connection (NMSystemConfigInterface *config,
                 GError **error)
 {
 	SCPluginKeyfile *self = SC_PLUGIN_KEYFILE (config);
-	SCPluginKeyfilePrivate *priv = SC_PLUGIN_KEYFILE_GET_PRIVATE (self);
-	NMSettingsConnection *added = NULL;
-	char *path = NULL;
+	gs_free char *path = NULL;
 
 	if (save_to_disk) {
 		if (!nm_keyfile_plugin_write_connection (connection, NULL, &path, error))
 			return NULL;
 	}
-
-	added = (NMSettingsConnection *) nm_keyfile_connection_new (connection, path, error);
-	if (added) {
-		nm_log_info (LOGD_SETTINGS, "keyfile: add "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG ((NMKeyfileConnection *) added));
-		g_hash_table_insert (priv->connections,
-		                     g_strdup (nm_connection_get_uuid (NM_CONNECTION (added))),
-		                     added);
-		g_signal_connect (added, NM_SETTINGS_CONNECTION_REMOVED,
-		                  G_CALLBACK (connection_removed_cb),
-		                  self);
-	}
-	g_free (path);
-	return added;
+	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, NULL, error));
 }
 
 static gboolean
