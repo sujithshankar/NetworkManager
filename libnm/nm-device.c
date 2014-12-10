@@ -90,7 +90,7 @@ typedef struct {
 	NMIPConfig *ip6_config;
 	NMDhcpConfig *dhcp6_config;
 	NMDeviceState state;
-	NMDeviceState last_seen_state;
+	GSList *state_data_queue;
 	NMDeviceStateReason reason;
 
 	NMActiveConnection *active_connection;
@@ -219,36 +219,57 @@ typedef struct {
 } StateChangeData;
 
 static void
+free_state_change_data (gpointer data)
+{
+	g_slice_free (StateChangeData, data);
+}
+
+static void
+emit_state_changed (NMDevice *device, StateChangeData *data)
+{
+	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (device);
+	GSList *item, *iter, *old_list;
+
+	item = g_slist_find (priv->state_data_queue, data);
+
+	if (!item)
+		return;
+
+	old_list = priv->state_data_queue;
+	priv->state_data_queue = item->next;
+	item->next = NULL;
+
+	/* Emit all signals in the list end free it */
+	for (iter = old_list; iter; iter = g_slist_next (iter)) {
+		StateChangeData *tmp = iter->data;
+
+		/* Ensure that nm_device_get_state() will return the right value even if
+		 * we haven't processed the corresponding PropertiesChanged yet.
+		 */
+		priv->state = tmp->new_state;
+
+		g_signal_emit (device, signals[STATE_CHANGED], 0,
+		               tmp->new_state, tmp->old_state, tmp->reason);
+	}
+	g_slist_free_full (old_list, free_state_change_data);
+}
+
+static void
 device_state_change_reloaded (GObject *object,
                               GAsyncResult *result,
                               gpointer user_data)
 {
 	NMDevice *self = NM_DEVICE (object);
-	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	StateChangeData *data = user_data;
-	NMDeviceState old_state = data->old_state;
-	NMDeviceState new_state = data->new_state;
-	NMDeviceStateReason reason = data->reason;
-
-	g_slice_free (StateChangeData, data);
 
 	_nm_object_reload_properties_finish (NM_OBJECT (object), result, NULL);
 
 	/* If the device changes state several times in rapid succession, then we'll
 	 * queue several reload_properties() calls, and there's no guarantee that
-	 * they'll finish in the right order. In that case, only emit the signal
-	 * for the last one.
+	 * they'll finish in the right order. In that case, we use our own queue for
+	 * emitting state-changed signals.
 	 */
-	if (priv->last_seen_state != new_state)
-		return;
-
-	/* Ensure that nm_device_get_state() will return the right value even if
-	 * we haven't processed the corresponding PropertiesChanged yet.
-	 */
-	priv->state = new_state;
-
-	g_signal_emit (self, signals[STATE_CHANGED], 0,
-	               new_state, old_state, reason);
+	emit_state_changed (self, data);
 }
 
 static void
@@ -270,12 +291,12 @@ device_state_changed (NMDBusDevice *proxy,
 	 * in the process of asynchronously reading the new values.
 	 * Wait for that to finish before emitting the signal.
 	 */
-	priv->last_seen_state = new_state;
-
 	data = g_slice_new (StateChangeData);
 	data->old_state = old_state;
 	data->new_state = new_state;
 	data->reason = reason;
+
+	priv->state_data_queue = g_slist_append (priv->state_data_queue, data);
 	_nm_object_reload_properties_async (NM_OBJECT (user_data),
 	                                    NULL,
 	                                    device_state_change_reloaded,
@@ -367,6 +388,8 @@ finalize (GObject *object)
 	g_free (priv->bus_name);
 	g_free (priv->type_description);
 	g_free (priv->physical_port_id);
+
+	g_slist_free_full (priv->state_data_queue, free_state_change_data);
 
 	G_OBJECT_CLASS (nm_device_parent_class)->finalize (object);
 }
