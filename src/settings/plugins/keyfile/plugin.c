@@ -127,6 +127,8 @@ find_by_path (SCPluginKeyfile *self, const char *path)
  * @connection: an existing connection that might be updated.
  *   If given, @connection must be an existing connection that is currently
  *   owned by the plugin.
+ * @protect_existing_connection: if true, we don't allow updating an existing
+ *   connection with the same UUID. This conflicts with @connection
  * @protected_connections: (allow-none): if given, we only update an
  *   existing connection if it is not contained in this hash.
  * @error: error in case of failure
@@ -146,6 +148,7 @@ update_connection (SCPluginKeyfile *self,
                    NMConnection *source,
                    const char *full_path,
                    NMKeyfileConnection *connection,
+                   gboolean protect_existing_connection,
                    GHashTable *protected_connections,
                    GError **error)
 {
@@ -157,6 +160,7 @@ update_connection (SCPluginKeyfile *self,
 
 	g_return_val_if_fail (!source || NM_IS_CONNECTION (source), NULL);
 	g_return_val_if_fail (full_path || source, NULL);
+	g_return_val_if_fail (!protect_existing_connection || !connection, NULL);
 
 	connection_new = nm_keyfile_connection_new (source, full_path, &local);
 	if (!connection_new) {
@@ -182,8 +186,8 @@ update_connection (SCPluginKeyfile *self,
 	}
 
 	if (   connection_by_uuid
-	    && protected_connections
-	    && g_hash_table_contains (protected_connections, connection_by_uuid)) {
+	    && (   protect_existing_connection
+	        || (protected_connections && g_hash_table_contains (protected_connections, connection_by_uuid)))) {
 		if (source)
 			nm_log_warn (LOGD_SETTINGS, "keyfile: cannot update connection due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_by_uuid));
 		else
@@ -263,12 +267,15 @@ dir_changed (GFileMonitor *monitor,
 	SCPluginKeyfile *self = SC_PLUGIN_KEYFILE (config);
 	NMKeyfileConnection *connection;
 	char *full_path;
+	gboolean protect_existing_connection;
 
 	full_path = g_file_get_path (file);
 	if (nm_keyfile_plugin_utils_should_ignore_file (full_path)) {
 		g_free (full_path);
 		return;
 	}
+
+	nm_log_dbg (LOGD_SETTINGS, "dir_changed(%s) = %d", full_path, event_type);
 
 	connection = find_by_path (self, full_path);
 
@@ -279,7 +286,13 @@ dir_changed (GFileMonitor *monitor,
 		break;
 	case G_FILE_MONITOR_EVENT_CREATED:
 	case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
-		update_connection (SC_PLUGIN_KEYFILE (config), NULL, full_path, connection, NULL, NULL);
+
+		/* Automatic load on file changes are special. We don't allow
+		 * a "rename" in this case. Otherwise, copying a file, would immediately
+		 * result in an rename. */
+		protect_existing_connection = !connection;
+
+		update_connection (SC_PLUGIN_KEYFILE (config), NULL, full_path, connection, protect_existing_connection, NULL, NULL);
 		break;
 	default:
 		break;
@@ -444,7 +457,7 @@ read_connections (NMSystemConfigInterface *config)
 	g_hash_table_destroy (paths);
 
 	for (i = 0; i < filenames->len; i++) {
-		connection = update_connection (self, NULL, filenames->pdata[i], NULL, alive_connections, NULL);
+		connection = update_connection (self, NULL, filenames->pdata[i], NULL, FALSE, alive_connections, NULL);
 		if (connection)
 			g_hash_table_add (alive_connections, connection);
 	}
@@ -499,7 +512,7 @@ load_connection (NMSystemConfigInterface *config,
 	if (nm_keyfile_plugin_utils_should_ignore_file (filename + dir_len + 1))
 		return FALSE;
 
-	connection = update_connection (self, NULL, filename, find_by_path (self, filename), NULL, NULL);
+	connection = update_connection (self, NULL, filename, find_by_path (self, filename), FALSE, NULL, NULL);
 
 	return (connection != NULL);
 }
@@ -523,7 +536,7 @@ add_connection (NMSystemConfigInterface *config,
 		if (!nm_keyfile_plugin_write_connection (connection, NULL, &path, error))
 			return NULL;
 	}
-	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, NULL, error));
+	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, FALSE, NULL, error));
 }
 
 static gboolean
