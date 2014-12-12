@@ -94,6 +94,7 @@ static NMIfcfgConnection *update_connection (SCPluginIfcfg *plugin,
                                              NMConnection *source,
                                              const char *full_path,
                                              NMIfcfgConnection *connection,
+                                             gboolean protect_existing_connection,
                                              GHashTable *protected_connections,
                                              GError **error);
 
@@ -132,7 +133,9 @@ connection_ifcfg_changed (NMIfcfgConnection *connection, gpointer user_data)
 	path = nm_ifcfg_connection_get_path (connection);
 	g_return_if_fail (path != NULL);
 
-	update_connection (plugin, NULL, path, connection, NULL, NULL);
+	_LOGD ("connection_ifcfg_changed("NM_IFCFG_CONNECTION_LOG_FMTD")", NM_IFCFG_CONNECTION_LOG_ARGD (connection));
+
+	update_connection (plugin, NULL, path, connection, FALSE, NULL, NULL);
 }
 
 static void
@@ -190,6 +193,7 @@ update_connection (SCPluginIfcfg *self,
                    NMConnection *source,
                    const char *full_path,
                    NMIfcfgConnection *connection,
+                   gboolean protect_existing_connection,
                    GHashTable *protected_connections,
                    GError **error)
 {
@@ -205,6 +209,7 @@ update_connection (SCPluginIfcfg *self,
 
 	g_return_val_if_fail (!source || NM_IS_CONNECTION (source), NULL);
 	g_return_val_if_fail (full_path || source, NULL);
+	g_return_val_if_fail (!protect_existing_connection || !connection, NULL);
 
 	/* Create a NMIfcfgConnection instance, either by reading from @full_path or
 	 * based on @source. */
@@ -239,8 +244,8 @@ update_connection (SCPluginIfcfg *self,
 
 	/* Check if the found connection with the same UUID is not protected from updating. */
 	if (   connection_by_uuid
-	    && protected_connections
-	    && g_hash_table_contains (protected_connections, connection_by_uuid)) {
+	    && (   protect_existing_connection
+	        || (protected_connections && g_hash_table_contains (protected_connections, connection_by_uuid)))) {
 		if (source)
 			_LOGW ("cannot update connection due to conflicting UUID for "NM_IFCFG_CONNECTION_LOG_FMT, NM_IFCFG_CONNECTION_LOG_ARG (connection_by_uuid));
 		else
@@ -409,12 +414,15 @@ ifcfg_dir_changed (GFileMonitor *monitor,
 	SCPluginIfcfg *plugin = SC_PLUGIN_IFCFG (user_data);
 	char *path, *base, *ifcfg_path;
 	NMIfcfgConnection *connection;
+	gboolean protect_existing_connection;
 
 	path = g_file_get_path (file);
 	if (utils_should_ignore_file (path, FALSE)) {
 		g_free (path);
 		return;
 	}
+
+	_LOGD ("ifcfg_dir_changed(%s) = %d", path, event_type);
 
 	base = g_file_get_basename (file);
 	if (utils_is_ifcfg_alias_file (base, NULL)) {
@@ -434,7 +442,13 @@ ifcfg_dir_changed (GFileMonitor *monitor,
 		case G_FILE_MONITOR_EVENT_CREATED:
 		case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
 			/* Update or new */
-			update_connection (plugin, NULL, ifcfg_path, connection, NULL, NULL);
+
+			/* Automatic load on file changes are special. We don't allow
+			 * a "rename" in this case. Otherwise, copying a file, would immediately
+			 * result in an rename. */
+			protect_existing_connection = !connection;
+
+			update_connection (plugin, NULL, ifcfg_path, connection, protect_existing_connection, NULL, NULL);
 			break;
 		default:
 			break;
@@ -561,7 +575,7 @@ read_connections (SCPluginIfcfg *plugin)
 	g_hash_table_destroy (paths);
 
 	for (i = 0; i < filenames->len; i++) {
-		connection = update_connection (plugin, NULL, filenames->pdata[i], NULL, alive_connections, NULL);
+		connection = update_connection (plugin, NULL, filenames->pdata[i], NULL, FALSE, alive_connections, NULL);
 		if (connection)
 			g_hash_table_add (alive_connections, connection);
 	}
@@ -628,7 +642,7 @@ load_connection (NMSystemConfigInterface *config,
 		return FALSE;
 
 	connection = find_by_path (plugin, filename);
-	update_connection (plugin, NULL, filename, connection, NULL, NULL);
+	update_connection (plugin, NULL, filename, connection, FALSE, NULL, NULL);
 	if (!connection)
 		connection = find_by_path (plugin, filename);
 
@@ -705,7 +719,7 @@ add_connection (NMSystemConfigInterface *config,
 		if (!writer_new_connection (connection, IFCFG_DIR, &path, error))
 			return NULL;
 	}
-	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, NULL, error));
+	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, FALSE, NULL, error));
 }
 
 #define SC_NETWORK_FILE "/etc/sysconfig/network"
