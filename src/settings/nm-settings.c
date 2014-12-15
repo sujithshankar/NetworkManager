@@ -870,8 +870,16 @@ claim_connection (NMSettings *self,
 
 	existing = nm_settings_get_connection_by_uuid (self, nm_connection_get_uuid (NM_CONNECTION (connection)));
 	if (existing) {
-		/* Cannot add duplicate connections by UUID. It is the responsibility of the
-		 * caller to ensure no collision. */
+		/* Cannot add duplicate connections per UUID. Just return without action and
+		 * log a warning.
+		 *
+		 * This means, that plugins must not provide duplicate connections (UUID).
+		 * In fact, none of the plugins currently would do that.
+		 *
+		 * But globaly, over different setting plugins, there could be duplicates
+		 * without the individual plugins being aware. Don't handle that at all, just
+		 * error out. That should not happen unless the admin misconfigured the system
+		 * to create conflicting connections. */
 		nm_log_warn (LOGD_SETTINGS, "plugin provided duplicate connection with UUID %s",
 		             nm_connection_get_uuid (NM_CONNECTION (connection)));
 		return;
