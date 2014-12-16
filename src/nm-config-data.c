@@ -21,6 +21,8 @@
 
 #include "nm-config-data.h"
 
+#include "nm-config.h"
+
 typedef struct {
 	NMConfig *config;
 
@@ -56,7 +58,7 @@ nm_config_data_get_config (const NMConfigData *self)
 	return NM_CONFIG_DATA_GET_PRIVATE (self)->config;
 }
 
-void
+static void
 _nm_config_data_set_config(NMConfigData *self, NMConfig *config)
 {
 	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE (self);
