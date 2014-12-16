@@ -4418,7 +4418,7 @@ act_stage3_ip6_config_start (NMDevice *self,
 			 * to the interface until disable_ipv6 is bounced.
 			 */
 			set_nm_ipv6ll (self, FALSE);
-			if (old_nm_ipv6ll == TRUE)
+			if (old_nm_ipv6ll)
 				nm_device_ipv6_sysctl_set (self, "disable_ipv6", "1");
 			restore_ip6_properties (self);
 		}
