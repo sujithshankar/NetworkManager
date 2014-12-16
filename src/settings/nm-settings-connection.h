@@ -46,9 +46,10 @@ G_BEGIN_DECLS
 #define NM_SETTINGS_CONNECTION_UPDATED_BY_USER "updated-by-user"
 
 /* Properties */
-#define NM_SETTINGS_CONNECTION_VISIBLE "visible"
-#define NM_SETTINGS_CONNECTION_UNSAVED "unsaved"
-#define NM_SETTINGS_CONNECTION_FLAGS   "flags"
+#define NM_SETTINGS_CONNECTION_VISIBLE  "visible"
+#define NM_SETTINGS_CONNECTION_UNSAVED  "unsaved"
+#define NM_SETTINGS_CONNECTION_FLAGS    "flags"
+#define NM_SETTINGS_CONNECTION_FILENAME "filename"
 
 
 /**
@@ -195,6 +196,10 @@ gboolean nm_settings_connection_can_autoconnect (NMSettingsConnection *connectio
 
 gboolean nm_settings_connection_get_nm_generated (NMSettingsConnection *connection);
 gboolean nm_settings_connection_get_nm_generated_assumed (NMSettingsConnection *connection);
+
+void        nm_settings_connection_set_filename (NMSettingsConnection *connection,
+                                                 const char *filename);
+const char *nm_settings_connection_get_filename (NMSettingsConnection *connection);
 
 G_END_DECLS
 
