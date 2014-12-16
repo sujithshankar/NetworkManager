@@ -1653,7 +1653,9 @@ recheck_assume_connection (NMDevice *device, gpointer user_data)
 
 	if (manager_sleeping (self))
 		return FALSE;
-	if (nm_device_get_unmanaged_flag (device, NM_UNMANAGED_USER))
+	if (nm_device_get_unmanaged_flag (device, NM_UNMANAGED_USER) ||
+	    nm_device_get_unmanaged_flag (device, NM_UNMANAGED_INTERNAL) ||
+	    nm_device_get_unmanaged_flag (device, NM_UNMANAGED_PARENT))
 		return FALSE;
 
 	state = nm_device_get_state (device);
@@ -1817,6 +1819,8 @@ add_device (NMManager *self, NMDevice *device, gboolean try_assume)
 
 	sleeping = manager_sleeping (self);
 	nm_device_set_initial_unmanaged_flag (device, NM_UNMANAGED_INTERNAL, sleeping);
+
+	nm_device_update_initial_unmanaged_flags (device);
 
 	nm_device_dbus_export (device);
 	nm_device_finish_init (device);
