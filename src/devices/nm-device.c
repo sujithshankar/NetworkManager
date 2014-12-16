@@ -1157,8 +1157,7 @@ static gboolean
 is_software_external (NMDevice *self)
 {
 	return   nm_device_is_software (self)
-	      && !nm_device_get_is_nm_owned (self)
-	      && NM_DEVICE_GET_PRIVATE (self)->ifindex > 0;
+	      && !nm_device_get_is_nm_owned (self);
 }
 
 static void
@@ -1241,10 +1240,17 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 		update_for_ip_ifname_change (self);
 
 	/* Manage externally-created software interfaces only when they are IFF_UP */
-	if (is_software_external (self) && (nm_device_get_state (self) <= NM_DEVICE_STATE_DISCONNECTED)) {
+	if (   is_software_external (self)
+	    && (nm_device_get_state (self) <= NM_DEVICE_STATE_DISCONNECTED)
+	    && priv->ifindex > 0) {
 		gboolean external_down = nm_device_get_unmanaged_flag (self, NM_UNMANAGED_EXTERNAL_DOWN);
 
 		if (external_down && info->up) {
+			/* Ensure the assume check is queued before any queued state changes
+			 * from the transition to UNAVAILABLE.
+			 */
+			nm_device_queue_recheck_assume (self);
+
 			/* Resetting the EXTERNAL_DOWN flag may change the device's state
 			 * to UNAVAILABLE.  To ensure that the state change doesn't touch
 			 * the device before assumption occurs, pass
@@ -1254,7 +1260,6 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 			                         NM_UNMANAGED_EXTERNAL_DOWN,
 			                         FALSE,
 			                         NM_DEVICE_STATE_REASON_CONNECTION_ASSUMED);
-			nm_device_queue_recheck_assume (self);
 		} else if (!external_down && !info->up) {
 			/* If the device is already disconnected and is set !IFF_UP,
 			 * unmanage it.
@@ -1262,7 +1267,7 @@ device_link_changed (NMDevice *self, NMPlatformLink *info)
 			nm_device_set_unmanaged (self,
 			                         NM_UNMANAGED_EXTERNAL_DOWN,
 			                         TRUE,
-			                         NM_DEVICE_STATE_REASON_UNKNOWN);
+			                         NM_DEVICE_STATE_REASON_USER_REQUESTED);
 		}
 	}
 }
@@ -6750,7 +6755,9 @@ nm_device_update_initial_unmanaged_flags (NMDevice *self)
 	g_return_if_fail (priv->path == NULL);
 
 	/* Do not manage externally created software devices until they are IFF_UP */
-	if (is_software_external (self) && !nm_platform_link_is_up (priv->ifindex))
+	if (   is_software_external (self)
+	    && !nm_platform_link_is_up (priv->ifindex)
+	    && priv->ifindex > 0)
 		nm_device_set_initial_unmanaged_flag (self, NM_UNMANAGED_EXTERNAL_DOWN, TRUE);
 }
 
