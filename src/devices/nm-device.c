@@ -7718,7 +7718,6 @@ queued_set_state (gpointer user_data)
 		/* Clear queued state struct before triggering state change, since
 		 * the state change may queue another state.
 		 */
-		priv->queued_state.id = 0;
 		new_state = priv->queued_state.state;
 		new_reason = priv->queued_state.reason;
 		nm_device_queued_state_clear (self);
