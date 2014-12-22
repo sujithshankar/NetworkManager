@@ -311,7 +311,6 @@ update_connection (SCPluginIfcfg *self,
 	connection_new = (NMIfcfgConnection *) nm_ifcfg_connection_new (NULL, full_path, NULL);
 	if (!connection_new) {
 		/* errors reading connection; remove it */
-
 		_LOGI ("removed %s.", full_path);
 		remove_connection (self, connection);
 		return;
