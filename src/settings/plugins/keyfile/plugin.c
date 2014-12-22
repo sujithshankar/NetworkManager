@@ -521,6 +521,7 @@ load_connection (NMSystemConfigInterface *config,
 	SCPluginKeyfile *self = SC_PLUGIN_KEYFILE (config);
 	NMKeyfileConnection *connection;
 	int dir_len = strlen (KEYFILE_DIR);
+	gboolean protect_existing_connection;
 
 	if (   strncmp (filename, KEYFILE_DIR, dir_len) != 0
 	    || filename[dir_len] != '/'
@@ -530,7 +531,9 @@ load_connection (NMSystemConfigInterface *config,
 	if (nm_keyfile_plugin_utils_should_ignore_file (filename + dir_len + 1))
 		return FALSE;
 
-	connection = update_connection (self, NULL, filename, find_by_path (self, filename), FALSE, NULL, NULL);
+	protect_existing_connection = TRUE;
+
+	connection = update_connection (self, NULL, filename, find_by_path (self, filename), protect_existing_connection, NULL, NULL);
 
 	return (connection != NULL);
 }
