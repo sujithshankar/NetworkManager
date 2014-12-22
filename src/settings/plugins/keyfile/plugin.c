@@ -127,8 +127,13 @@ find_by_path (SCPluginKeyfile *self, const char *path)
  * @connection: an existing connection that might be updated.
  *   If given, @connection must be an existing connection that is currently
  *   owned by the plugin.
- * @protect_existing_connection: if true, we don't allow updating an existing
- *   connection with the same UUID. This conflicts with @connection
+ * @protect_existing_connection: if %TRUE, and !@connection, we don't allow updating
+ *   an existing connection with the same UUID.
+ *   If %TRUE and @connection, allow updating only if the reload would modify
+ *   @connection (without changing its UUID).
+ *   In other words, if this paramter is %TRUE, we only allow creating a
+ *   new connection (with an unseen UUID) or updating the passed in @connection
+ *   (whereas the UUID cannot change).
  * @protected_connections: (allow-none): if given, we only update an
  *   existing connection if it is not contained in this hash.
  * @error: error in case of failure
@@ -160,7 +165,6 @@ update_connection (SCPluginKeyfile *self,
 
 	g_return_val_if_fail (!source || NM_IS_CONNECTION (source), NULL);
 	g_return_val_if_fail (full_path || source, NULL);
-	g_return_val_if_fail (!protect_existing_connection || !connection, NULL);
 
 	connection_new = nm_keyfile_connection_new (source, full_path, &local);
 	if (!connection_new) {
@@ -169,7 +173,8 @@ update_connection (SCPluginKeyfile *self,
 			nm_log_warn (LOGD_SETTINGS, "keyfile: error creating connection %s: %s", nm_connection_get_uuid (source), local->message);
 		else
 			nm_log_warn (LOGD_SETTINGS, "keyfile: error loading connection from file %s: %s", full_path, local->message);
-		if (connection)
+		if (   connection
+		    && !protect_existing_connection)
 			remove_connection (self, connection);
 		g_propagate_error (error, local);
 		return NULL;
@@ -180,13 +185,25 @@ update_connection (SCPluginKeyfile *self,
 
 	if (   connection
 	    && connection != connection_by_uuid) {
+
+		if (protect_existing_connection) {
+			if (source)
+				nm_log_warn (LOGD_SETTINGS, "keyfile: cannot update protected "NM_KEYFILE_CONNECTION_LOG_FMT" connection due to conflicting UUID %s", NM_KEYFILE_CONNECTION_LOG_ARG (connection), uuid);
+			else
+				nm_log_warn (LOGD_SETTINGS, "keyfile: cannot load %s due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, full_path, NM_KEYFILE_CONNECTION_LOG_ARG (connection));
+			g_object_unref (connection_new);
+			g_set_error_literal (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
+			                      "Cannot update protected connection due to conflicting UUID");
+			return NULL;
+		}
+
 		/* The new connection has a different UUID then the original one.
 		 * Remove @connection. */
 		remove_connection (self, connection);
 	}
 
 	if (   connection_by_uuid
-	    && (   protect_existing_connection
+	    && (   (!connection && protect_existing_connection)
 	        || (protected_connections && g_hash_table_contains (protected_connections, connection_by_uuid)))) {
 		if (source)
 			nm_log_warn (LOGD_SETTINGS, "keyfile: cannot update connection due to conflicting UUID for "NM_KEYFILE_CONNECTION_LOG_FMT, NM_KEYFILE_CONNECTION_LOG_ARG (connection_by_uuid));
