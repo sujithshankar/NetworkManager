@@ -268,7 +268,7 @@ nm_settings_connection_recheck_visibility (NMSettingsConnection *self)
 			continue;
 		if (!nm_session_monitor_user_to_uid (user, &uid))
 			continue;
-		if (!nm_session_monitor_session_exists (uid, FALSE))
+		if (!nm_session_monitor_session_exists (uid, TRUE))
 			continue;
 
 		set_visible (self, TRUE);
