@@ -68,7 +68,8 @@
 #define _LOG(level, domain, ...) \
     G_STMT_START { \
         nm_log ((level), (domain), \
-                "ifcfg-rh: " _NM_UTILS_MACRO_FIRST(__VA_ARGS__) \
+                "%s" _NM_UTILS_MACRO_FIRST(__VA_ARGS__), \
+                "ifcfg-rh: " \
                 _NM_UTILS_MACRO_REST(__VA_ARGS__)); \
     } G_STMT_END
 
