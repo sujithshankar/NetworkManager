@@ -209,14 +209,14 @@ update_connection (SCPluginIfcfg *self,
 
 	g_return_val_if_fail (!source || NM_IS_CONNECTION (source), NULL);
 	g_return_val_if_fail (full_path || source, NULL);
-	g_return_val_if_fail (!protect_existing_connection || !connection, NULL);
 
 	/* Create a NMIfcfgConnection instance, either by reading from @full_path or
 	 * based on @source. */
 	connection_new = nm_ifcfg_connection_new (source, full_path, error);
 	if (!connection_new) {
 		/* Unexpected failure. Probably the file is invalid? */
-		if (connection)
+		if (   connection
+		    && !protect_existing_connection)
 			remove_connection (self, connection);
 		return NULL;
 	}
@@ -226,6 +226,18 @@ update_connection (SCPluginIfcfg *self,
 
 	if (   connection
 	    && connection != connection_by_uuid) {
+
+		if (protect_existing_connection) {
+			if (source)
+				_LOGW ("cannot update protected connection "NM_IFCFG_CONNECTION_LOG_FMT" due to conflicting UUID %s", NM_IFCFG_CONNECTION_LOG_ARG (connection), uuid);
+			else
+				_LOGW ("cannot load %s due to conflicting UUID for "NM_IFCFG_CONNECTION_LOG_FMT, full_path, NM_IFCFG_CONNECTION_LOG_ARG (connection));
+			g_object_unref (connection_new);
+			g_set_error_literal (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
+			                     "Cannot update protected connection due to conflicting UUID");
+			return NULL;
+		}
+
 		/* The new connection has a different UUID then the original one that we
 		 * are about to update. Remove @connection. */
 		remove_connection (self, connection);
@@ -233,7 +245,7 @@ update_connection (SCPluginIfcfg *self,
 
 	/* Check if the found connection with the same UUID is not protected from updating. */
 	if (   connection_by_uuid
-	    && (   protect_existing_connection
+	    && (   (!connection && protect_existing_connection)
 	        || (protected_connections && g_hash_table_contains (protected_connections, connection_by_uuid)))) {
 		if (source)
 			_LOGW ("cannot update connection due to conflicting UUID for "NM_IFCFG_CONNECTION_LOG_FMT, NM_IFCFG_CONNECTION_LOG_ARG (connection_by_uuid));
