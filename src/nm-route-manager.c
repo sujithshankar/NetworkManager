@@ -18,6 +18,7 @@
  * Copyright (C) 2015 Red Hat, Inc.
  */
 
+#include <string.h>
 
 #include "config.h"
 
@@ -25,12 +26,19 @@
 #include "nm-platform.h"
 #include "nm-logging.h"
 
+typedef struct {
+	GArray *ip4_routes;
+	GArray *ip6_routes;
+} NMRouteManagerPrivate;
+
+#define NM_ROUTE_MANAGER_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_ROUTE_MANAGER, NMRouteManagerPrivate))
+
 G_DEFINE_TYPE (NMRouteManager, nm_route_manager, G_TYPE_OBJECT)
 
 static NMRouteManager *_instance;
 
-static gboolean
-array_contains_ip4_route (const GArray *routes, const NMPlatformIP4Route *route)
+static const NMPlatformIP4Route *
+array_get_ip4_route (const GArray *routes, int ifindex, const NMPlatformIP4Route *route)
 {
 	guint len = routes ? routes->len : 0;
 	guint i;
@@ -38,18 +46,21 @@ array_contains_ip4_route (const GArray *routes, const NMPlatformIP4Route *route)
 	for (i = 0; i < len; i++) {
 		NMPlatformIP4Route *c = &g_array_index (routes, NMPlatformIP4Route, i);
 
+		if (ifindex && c->ifindex != ifindex)
+			continue;
+
 		if (route->network == c->network &&
 		    route->plen == c->plen &&
 		    route->gateway == c->gateway &&
 		    route->metric == c->metric)
-			return TRUE;
+			return c;
 	}
 
-	return FALSE;
+	return NULL;
 }
 
-static gboolean
-array_contains_ip6_route (const GArray *routes, const NMPlatformIP6Route *route)
+static const NMPlatformIP6Route *
+array_get_ip6_route (const GArray *routes, int ifindex, const NMPlatformIP6Route *route)
 {
 	guint len = routes ? routes->len : 0;
 	guint i;
@@ -57,14 +68,17 @@ array_contains_ip6_route (const GArray *routes, const NMPlatformIP6Route *route)
 	for (i = 0; i < len; i++) {
 		NMPlatformIP6Route *c = &g_array_index (routes, NMPlatformIP6Route, i);
 
+		if (ifindex && c->ifindex != ifindex)
+			continue;
+
 		if (IN6_ARE_ADDR_EQUAL (&route->network, &c->network) &&
 		    route->plen == c->plen &&
 		    IN6_ARE_ADDR_EQUAL (&route->gateway, &c->gateway) &&
 		    route->metric == c->metric)
-			return TRUE;
+			return c;
 	}
 
-	return FALSE;
+	return NULL;
 }
 
 
@@ -84,25 +98,53 @@ array_contains_ip6_route (const GArray *routes, const NMPlatformIP6Route *route)
 gboolean
 nm_route_manager_ip4_route_sync (NMRouteManager *self, int ifindex, const GArray *known_routes)
 {
-	GArray *routes;
-	NMPlatformIP4Route *route;
+	NMRouteManagerPrivate *priv = NM_ROUTE_MANAGER_GET_PRIVATE (self);
+	GArray *routes = priv->ip4_routes;
+	NMPlatformIP4Route route;
 	const NMPlatformIP4Route *known_route;
+	const NMPlatformIP4Route *existing;
 	gboolean success;
-	int i, i_type;
+	int i = 0, i_type;
 
 	/* Delete unknown routes */
-	routes = nm_platform_ip4_route_get_all (ifindex, NM_PLATFORM_GET_ROUTE_MODE_NO_DEFAULT);
-	for (i = 0; i < routes->len; i++) {
-		route = &g_array_index (routes, NMPlatformIP4Route, i);
+	while (i < routes->len) {
+		route = g_array_index (routes, NMPlatformIP4Route, i);
 
-		if (!array_contains_ip4_route (known_routes, route))
-			(void) nm_platform_ip4_route_delete (ifindex, route->network, route->plen, route->metric);
+		if (route.ifindex != ifindex) {
+			/* Not our route, don't consider it for deletion */
+			i++;
+			continue;
+		}
+		if (array_get_ip4_route (known_routes, 0, &route)) {
+			/* Keep it. */
+			i++;
+			continue;
+		}
+
+		g_array_remove_index (routes, i);
+
+		existing = array_get_ip4_route (routes, 0, &route);
+		if (existing) {
+			/* The same route as we're removing exists for another
+			 * interface. Add it. */
+			nm_platform_ip4_route_add (existing->ifindex,
+			                           existing->source,
+			                           existing->network,
+			                           existing->plen,
+			                           existing->gateway,
+			                           0,
+			                           existing->metric,
+			                           existing->mss);
+		}
+
+		nm_platform_ip4_route_delete (route.ifindex,
+		                              route.network,
+		                              route.plen,
+		                              route.metric);
 	}
 
-	if (!known_routes) {
-		g_array_free (routes, TRUE);
+	if (!known_routes)
 		return TRUE;
-	}
 
 	/* Add missing routes */
 	for (i_type = 0, success = TRUE; i_type < 2 && success; i_type++) {
@@ -119,7 +161,7 @@ nm_route_manager_ip4_route_sync (NMRouteManager *self, int ifindex, const GArray
 			}
 
 			/* Ignore routes that already exist */
-			if (!array_contains_ip4_route (routes, known_route)) {
+			if (!array_get_ip4_route (routes, 0, known_route)) {
 				success = nm_platform_ip4_route_add (known_route->ifindex,
 				                                     known_route->source,
 				                                     known_route->network,
@@ -134,10 +176,12 @@ nm_route_manager_ip4_route_sync (NMRouteManager *self, int ifindex, const GArray
 					success = TRUE;
 				}
 			}
+
+			if (!array_get_ip4_route (routes, known_route->ifindex, known_route))
+				g_array_append_val (routes, *known_route);
 		}
 	}
 
-	g_array_free (routes, TRUE);
 	return success;
 }
 
@@ -157,26 +201,52 @@ nm_route_manager_ip4_route_sync (NMRouteManager *self, int ifindex, const GArray
 gboolean
 nm_route_manager_ip6_route_sync (NMRouteManager *self, int ifindex, const GArray *known_routes)
 {
-	GArray *routes;
-	NMPlatformIP6Route *route;
+	NMRouteManagerPrivate *priv = NM_ROUTE_MANAGER_GET_PRIVATE (self);
+	GArray *routes = priv->ip6_routes;
+	NMPlatformIP6Route route;
 	const NMPlatformIP6Route *known_route;
+	const NMPlatformIP6Route *existing;
 	gboolean success;
-	int i, i_type;
+	int i = 0, i_type;
 
 	/* Delete unknown routes */
-	routes = nm_platform_ip6_route_get_all (ifindex, NM_PLATFORM_GET_ROUTE_MODE_NO_DEFAULT);
-	for (i = 0; i < routes->len; i++) {
-		route = &g_array_index (routes, NMPlatformIP6Route, i);
-		route->ifindex = 0;
+	while (i < routes->len) {
+		route = g_array_index (routes, NMPlatformIP6Route, i);
 
-		if (!array_contains_ip6_route (known_routes, route))
-			nm_platform_ip6_route_delete (ifindex, route->network, route->plen, route->metric);
+		if (route.ifindex != ifindex) {
+			/* Not our route, don't consider it for deletion */
+			i++;
+			continue;
+		}
+		if (array_get_ip6_route (known_routes, 0, &route)) {
+			/* Keep it. */
+			i++;
+			continue;
+		}
+
+		g_array_remove_index (routes, i);
+
+		existing = array_get_ip6_route (routes, 0, &route);
+		if (existing) {
+			/* The same route as we're removing exists for another
+			 * interface. Add it. */
+			nm_platform_ip6_route_add (existing->ifindex,
+			                           existing->source,
+			                           existing->network,
+			                           existing->plen,
+			                           existing->gateway,
+			                           existing->metric,
+			                           existing->mss);
+		}
+
+		nm_platform_ip6_route_delete (route.ifindex,
+		                              route.network,
+		                              route.plen,
+		                              route.metric);
 	}
 
-	if (!known_routes) {
-		g_array_free (routes, TRUE);
+	if (!known_routes)
 		return TRUE;
-	}
 
 	/* Add missing routes */
 	for (i_type = 0, success = TRUE; i_type < 2 && success; i_type++) {
@@ -193,7 +263,7 @@ nm_route_manager_ip6_route_sync (NMRouteManager *self, int ifindex, const GArray
 			}
 
 			/* Ignore routes that already exist */
-			if (!array_contains_ip6_route (routes, known_route)) {
+			if (!array_get_ip6_route (routes, 0, known_route)) {
 				success = nm_platform_ip6_route_add (known_route->ifindex,
 				                                     known_route->source,
 				                                     known_route->network,
@@ -207,10 +277,12 @@ nm_route_manager_ip6_route_sync (NMRouteManager *self, int ifindex, const GArray
 					success = TRUE;
 				}
 			}
+
+			if (!array_get_ip6_route (routes, known_route->ifindex, known_route))
+				g_array_append_val (routes, *known_route);
 		}
 	}
 
-	g_array_free (routes, TRUE);
 	return success;
 }
 
@@ -234,9 +306,30 @@ nm_route_manager_get ()
 static void
 nm_route_manager_init (NMRouteManager *self)
 {
+	NMRouteManagerPrivate *priv = NM_ROUTE_MANAGER_GET_PRIVATE (self);
+
+	priv->ip4_routes = g_array_new (FALSE, FALSE, sizeof (NMPlatformIP4Route));
+	priv->ip6_routes = g_array_new (FALSE, FALSE, sizeof (NMPlatformIP6Route));
+}
+
+static void
+finalize (GObject *object)
+{
+	NMRouteManagerPrivate *priv = NM_ROUTE_MANAGER_GET_PRIVATE (object);
+
+	g_array_free (priv->ip4_routes, TRUE);
+	g_array_free (priv->ip6_routes, TRUE);
+
+	G_OBJECT_CLASS (nm_route_manager_parent_class)->finalize (object);
 }
 
 static void
 nm_route_manager_class_init (NMRouteManagerClass *klass)
 {
+	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+
+	g_type_class_add_private (klass, sizeof (NMRouteManagerPrivate));
+
+	/* virtual methods */
+	object_class->finalize = finalize;
 }
