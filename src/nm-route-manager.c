@@ -120,7 +120,7 @@ nm_route_manager_ip4_route_sync (NMRouteManager *self, int ifindex, const GArray
 
 			/* Ignore routes that already exist */
 			if (!array_contains_ip4_route (routes, known_route)) {
-				success = nm_platform_ip4_route_add (ifindex,
+				success = nm_platform_ip4_route_add (known_route->ifindex,
 				                                     known_route->source,
 				                                     known_route->network,
 				                                     known_route->plen,
@@ -194,7 +194,7 @@ nm_route_manager_ip6_route_sync (NMRouteManager *self, int ifindex, const GArray
 
 			/* Ignore routes that already exist */
 			if (!array_contains_ip6_route (routes, known_route)) {
-				success = nm_platform_ip6_route_add (ifindex,
+				success = nm_platform_ip6_route_add (known_route->ifindex,
 				                                     known_route->source,
 				                                     known_route->network,
 				                                     known_route->plen,

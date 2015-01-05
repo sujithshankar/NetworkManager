@@ -282,6 +282,7 @@ nm_ip4_config_commit (const NMIP4Config *config, int ifindex, guint32 default_ro
 				continue;
 
 			g_array_append_vals (routes, route, 1);
+			g_array_index (routes, NMPlatformIP4Route, routes->len - 1).ifindex = ifindex;
 		}
 
 		success = nm_route_manager_ip4_route_sync (nm_route_manager_get (), ifindex, routes);
