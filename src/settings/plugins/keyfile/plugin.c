@@ -285,7 +285,6 @@ dir_changed (GFileMonitor *monitor,
 	SCPluginKeyfile *self = SC_PLUGIN_KEYFILE (config);
 	NMKeyfileConnection *connection;
 	char *full_path;
-	gboolean protect_existing_connection;
 
 	full_path = g_file_get_path (file);
 	if (nm_keyfile_plugin_utils_should_ignore_file (full_path)) {
@@ -304,13 +303,7 @@ dir_changed (GFileMonitor *monitor,
 		break;
 	case G_FILE_MONITOR_EVENT_CREATED:
 	case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
-
-		/* Automatic load on file changes are special. We don't allow
-		 * a "rename" in this case. Otherwise, copying a file, would immediately
-		 * result in an rename. */
-		protect_existing_connection = !connection;
-
-		update_connection (SC_PLUGIN_KEYFILE (config), NULL, full_path, connection, protect_existing_connection, NULL, NULL);
+		update_connection (SC_PLUGIN_KEYFILE (config), NULL, full_path, connection, TRUE, NULL, NULL);
 		break;
 	default:
 		break;
@@ -530,7 +523,7 @@ load_connection (NMSystemConfigInterface *config,
 	if (nm_keyfile_plugin_utils_should_ignore_file (filename + dir_len + 1))
 		return FALSE;
 
-	connection = update_connection (self, NULL, filename, find_by_path (self, filename), FALSE, NULL, NULL);
+	connection = update_connection (self, NULL, filename, find_by_path (self, filename), TRUE, NULL, NULL);
 
 	return (connection != NULL);
 }
