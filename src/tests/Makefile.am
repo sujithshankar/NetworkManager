@@ -20,6 +20,7 @@ noinst_PROGRAMS = \
 	test-general-with-expect \
 	test-ip4-config \
 	test-ip6-config \
+	test-route-manager \
 	test-dcb \
 	test-resolvconf-capture \
 	test-wired-defname
@@ -38,6 +39,14 @@ test_ip6_config_SOURCES = \
 	test-ip6-config.c
 
 test_ip6_config_LDADD = \
+	$(top_builddir)/src/libNetworkManager.la
+
+####### route manager test #######
+
+test_route_manager_SOURCES = \
+	test-route-manager.c
+
+test_route_manager_LDADD = \
 	$(top_builddir)/src/libNetworkManager.la
 
 ####### DCB test #######
@@ -89,6 +98,7 @@ EXTRA_DIST = test-secret-agent.py
 TESTS = \
 	test-ip4-config \
 	test-ip6-config \
+	test-route-manager \
 	test-dcb \
 	test-resolvconf-capture \
 	test-general \
