@@ -143,7 +143,7 @@ connection_ifcfg_changed (NMIfcfgConnection *connection, gpointer user_data)
 
 	_LOGD ("connection_ifcfg_changed("NM_IFCFG_CONNECTION_LOG_FMTD"): %s", NM_IFCFG_CONNECTION_LOG_ARGD (connection), "reload");
 
-	update_connection (self, NULL, path, connection, FALSE, NULL, NULL);
+	update_connection (self, NULL, path, connection, TRUE, NULL, NULL);
 }
 
 static void
@@ -422,7 +422,6 @@ ifcfg_dir_changed (GFileMonitor *monitor,
 	SCPluginIfcfg *plugin = SC_PLUGIN_IFCFG (user_data);
 	char *path, *base, *ifcfg_path;
 	NMIfcfgConnection *connection;
-	gboolean protect_existing_connection;
 
 	path = g_file_get_path (file);
 	if (utils_should_ignore_file (path, FALSE)) {
@@ -450,13 +449,7 @@ ifcfg_dir_changed (GFileMonitor *monitor,
 		case G_FILE_MONITOR_EVENT_CREATED:
 		case G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT:
 			/* Update or new */
-
-			/* Automatic load on file changes are special. We don't allow
-			 * a "rename" in this case. Otherwise, copying a file, would immediately
-			 * result in an rename. */
-			protect_existing_connection = !connection;
-
-			update_connection (plugin, NULL, ifcfg_path, connection, protect_existing_connection, NULL, NULL);
+			update_connection (plugin, NULL, ifcfg_path, connection, TRUE, NULL, NULL);
 			break;
 		default:
 			break;
@@ -650,7 +643,7 @@ load_connection (NMSystemConfigInterface *config,
 		return FALSE;
 
 	connection = find_by_path (plugin, filename);
-	update_connection (plugin, NULL, filename, connection, FALSE, NULL, NULL);
+	update_connection (plugin, NULL, filename, connection, TRUE, NULL, NULL);
 	if (!connection)
 		connection = find_by_path (plugin, filename);
 
