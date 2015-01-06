@@ -37,6 +37,8 @@ G_BEGIN_DECLS
 
 
 #define NM_CONFIG_DATA_CONFIG                "config"
+#define NM_CONFIG_DATA_CONFIG_MAIN_FILE      "config-main-file"
+#define NM_CONFIG_DATA_CONFIG_DESCRIPTION    "config-description"
 #define NM_CONFIG_DATA_CONNECTIVITY_URI      "connectivity-uri"
 #define NM_CONFIG_DATA_CONNECTIVITY_INTERVAL "connectivity-interval"
 #define NM_CONFIG_DATA_CONNECTIVITY_RESPONSE "connectivity-response"
@@ -52,6 +54,9 @@ typedef struct {
 GType nm_config_data_get_type (void);
 
 NMConfig *nm_config_data_get_config (const NMConfigData *config_data);
+
+const char *nm_config_data_get_config_main_file (const NMConfigData *config_data);
+const char *nm_config_data_get_config_description (const NMConfigData *config_data);
 
 const char *nm_config_data_get_connectivity_uri (const NMConfigData *config_data);
 const guint nm_config_data_get_connectivity_interval (const NMConfigData *config_data);

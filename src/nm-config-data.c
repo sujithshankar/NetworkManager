@@ -25,6 +25,8 @@
 
 typedef struct {
 	NMConfig *config;
+	char *config_main_file;
+	char *config_description;
 
 	struct {
 		char *uri;
@@ -37,6 +39,8 @@ typedef struct {
 enum {
 	PROP_0,
 	PROP_CONFIG,
+	PROP_CONFIG_MAIN_FILE,
+	PROP_CONFIG_DESCRIPTION,
 	PROP_CONNECTIVITY_URI,
 	PROP_CONNECTIVITY_INTERVAL,
 	PROP_CONNECTIVITY_RESPONSE,
@@ -69,6 +73,22 @@ _nm_config_data_set_config(NMConfigData *self, NMConfig *config)
 		priv->config = config;
 		g_object_add_weak_pointer (G_OBJECT (priv->config), (gpointer *) &priv->config);
 	}
+}
+
+const char *
+nm_config_data_get_config_main_file (const NMConfigData *self)
+{
+	g_return_val_if_fail (self, NULL);
+
+	return NM_CONFIG_DATA_GET_PRIVATE (self)->config_main_file;
+}
+
+const char *
+nm_config_data_get_config_description (const NMConfigData *self)
+{
+	g_return_val_if_fail (self, NULL);
+
+	return NM_CONFIG_DATA_GET_PRIVATE (self)->config_description;
 }
 
 const char *
@@ -110,6 +130,12 @@ get_property (GObject *object,
 	case PROP_CONFIG:
 		g_value_set_object (value, nm_config_data_get_config (self));
 		break;
+	case PROP_CONFIG_MAIN_FILE:
+		g_value_set_string (value, nm_config_data_get_config_main_file (self));
+		break;
+	case PROP_CONFIG_DESCRIPTION:
+		g_value_set_string (value, nm_config_data_get_config_description (self));
+		break;
 	case PROP_CONNECTIVITY_URI:
 		g_value_set_string (value, nm_config_data_get_connectivity_uri (self));
 		break;
@@ -139,6 +165,12 @@ set_property (GObject *object,
 	case PROP_CONFIG:
 		_nm_config_data_set_config (self, g_value_get_object (value));
 		break;
+	case PROP_CONFIG_MAIN_FILE:
+		priv->config_main_file = g_value_dup_string (value);
+		break;
+	case PROP_CONFIG_DESCRIPTION:
+		priv->config_description = g_value_dup_string (value);
+		break;
 	case PROP_CONNECTIVITY_URI:
 		priv->connectivity.uri = g_value_dup_string (value);
 		break;
@@ -163,6 +195,9 @@ static void
 finalize (GObject *gobject)
 {
 	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE (gobject);
+
+	g_free (priv->config_main_file);
+	g_free (priv->config_description);
 
 	g_free (priv->connectivity.uri);
 	g_free (priv->connectivity.response);
@@ -194,6 +229,22 @@ nm_config_data_class_init (NMConfigDataClass *config_class)
 	    (object_class, PROP_CONFIG,
 	     g_param_spec_object (NM_CONFIG_DATA_CONFIG, "", "",
 	                          NM_TYPE_CONFIG,
+	                          G_PARAM_READWRITE |
+	                          G_PARAM_CONSTRUCT_ONLY |
+	                          G_PARAM_STATIC_STRINGS));
+
+	g_object_class_install_property
+	    (object_class, PROP_CONFIG_MAIN_FILE,
+	     g_param_spec_string (NM_CONFIG_DATA_CONFIG_MAIN_FILE, "", "",
+	                          NULL,
+	                          G_PARAM_READWRITE |
+	                          G_PARAM_CONSTRUCT_ONLY |
+	                          G_PARAM_STATIC_STRINGS));
+
+	g_object_class_install_property
+	    (object_class, PROP_CONFIG_DESCRIPTION,
+	     g_param_spec_string (NM_CONFIG_DATA_CONFIG_DESCRIPTION, "", "",
+	                          NULL,
 	                          G_PARAM_READWRITE |
 	                          G_PARAM_CONSTRUCT_ONLY |
 	                          G_PARAM_STATIC_STRINGS));

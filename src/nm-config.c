@@ -59,9 +59,7 @@ typedef struct {
 	NMConfigData *config_data;
 	NMConfigData *config_data0;
 
-	char *config_main_file;
 	char *config_dir;
-	char *config_description;
 	char *no_auto_default_file;
 	GKeyFile *keyfile;
 
@@ -157,22 +155,6 @@ nm_config_get_data0 (NMConfig *config)
 	g_return_val_if_fail (config != NULL, NULL);
 
 	return NM_CONFIG_GET_PRIVATE (config)->config_data0;
-}
-
-const char *
-nm_config_get_config_main_file (NMConfig *config)
-{
-	g_return_val_if_fail (config != NULL, NULL);
-
-	return NM_CONFIG_GET_PRIVATE (config)->config_main_file;
-}
-
-const char *
-nm_config_get_config_description (NMConfig *config)
-{
-	g_return_val_if_fail (config != NULL, NULL);
-
-	return NM_CONFIG_GET_PRIVATE (config)->config_description;
 }
 
 const char **
@@ -442,7 +424,7 @@ nm_config_cmd_line_options_add_to_entries (NMConfigCmdLineOptions *cli,
 /************************************************************************/
 
 static NMConfigData *
-_config_data_new (NMConfig *self, GKeyFile *keyfile)
+_config_data_new (NMConfig *self, const char *config_main_file, const char *config_description, GKeyFile *keyfile)
 {
 	char *connectivity_uri, *connectivity_response;
 	guint connectivity_interval;
@@ -454,6 +436,8 @@ _config_data_new (NMConfig *self, GKeyFile *keyfile)
 
 	config_data = g_object_new (NM_TYPE_CONFIG_DATA,
 	                            NM_CONFIG_DATA_CONFIG, self,
+	                            NM_CONFIG_DATA_CONFIG_MAIN_FILE, config_main_file,
+	                            NM_CONFIG_DATA_CONFIG_DESCRIPTION, config_description,
 	                            NM_CONFIG_DATA_CONNECTIVITY_URI, connectivity_uri,
 	                            NM_CONFIG_DATA_CONNECTIVITY_INTERVAL, connectivity_interval,
 	                            NM_CONFIG_DATA_CONNECTIVITY_RESPONSE, connectivity_response,
@@ -743,14 +727,14 @@ nm_config_reload (NMConfig *self)
 	                              &config_main_file,
 	                              &config_description,
 	                              &error);
-	g_free (config_main_file);
-	g_free (config_description);
 	if (!keyfile) {
 		nm_log_err (LOGD_CORE, "Failed to reload the configuration: %s", error->message);
 		g_clear_error (&error);
 		return;
 	}
-	new_data = _config_data_new (self, keyfile);
+	new_data = _config_data_new (self, config_main_file, config_description, keyfile);
+	g_free (config_main_file);
+	g_free (config_description);
 	g_key_file_free (keyfile);
 
 
@@ -767,6 +751,12 @@ nm_config_reload (NMConfig *self)
 		g_hash_table_insert (changes, NM_CONFIG_CHANGES_CONNECTIVITY, NULL);
 	}
 
+	if (   g_strcmp0 (nm_config_data_get_config_main_file (old_data), nm_config_data_get_config_main_file (new_data)) != 0
+	    || g_strcmp0 (nm_config_data_get_config_description (old_data), nm_config_data_get_config_description (new_data)) != 0) {
+		nm_log_dbg (LOGD_CORE, "config: reload: change '" NM_CONFIG_CHANGES_CONFIG_FILES "'");
+		g_hash_table_insert (changes, NM_CONFIG_CHANGES_CONFIG_FILES, NULL);
+	}
+
 	if (!g_hash_table_size (changes)) {
 		g_hash_table_destroy (changes);
 		g_object_unref (new_data);
@@ -774,6 +764,21 @@ nm_config_reload (NMConfig *self)
 	}
 
 	g_assert (self == nm_config_data_get_config (new_data));
+
+	if (nm_logging_enabled (LOGL_INFO, LOGD_CORE)) {
+		GString *str = g_string_new (NULL);
+		GHashTableIter iter;
+		const char *key;
+
+		g_hash_table_iter_init (&iter, changes);
+		while (g_hash_table_iter_next (&iter, (gpointer) &key, NULL)) {
+			if (str->len)
+				g_string_append (str, ",");
+			g_string_append (str, key);
+		}
+		nm_log_info (LOGD_CORE, "config: update %s (%s)", nm_config_data_get_config_description (new_data), str->str);
+		g_string_free (str, TRUE);
+	}
 
 	priv->config_data = new_data;
 	g_signal_emit (self, signals[SIGNAL_CONFIG_CHANGED], 0, changes, old_data);
@@ -815,6 +820,8 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 	NMConfigPrivate *priv = NULL;
 	NMConfig *self;
 	GKeyFile *keyfile;
+	char *config_main_file = NULL;
+	char *config_description = NULL;
 
 	self = NM_CONFIG (g_object_new (NM_TYPE_CONFIG,
 	                                NM_CONFIG_CMD_LINE_OPTIONS, cli,
@@ -828,8 +835,8 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 
 	keyfile = read_entire_config (&priv->cli,
 	                              priv->config_dir,
-	                              &priv->config_main_file,
-	                              &priv->config_description,
+	                              &config_main_file,
+	                              &config_description,
 	                              error);
 	if (!keyfile) {
 		g_object_unref (self);
@@ -866,7 +873,7 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 
 	priv->configure_and_quit = _get_bool_value (priv->keyfile, "main", "configure-and-quit", FALSE);
 
-	priv->config_data0 = _config_data_new (self, priv->keyfile);
+	priv->config_data0 = _config_data_new (self, config_main_file, config_description, priv->keyfile);
 
 	/* Initialize mutable members. */
 
@@ -875,6 +882,8 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 	priv->no_auto_default = g_strdupv (priv->no_auto_default_orig);
 	merge_no_auto_default_state (self);
 
+	g_free (config_main_file);
+	g_free (config_description);
 	return self;
 }
 
@@ -893,9 +902,7 @@ finalize (GObject *gobject)
 {
 	NMConfigPrivate *priv = NM_CONFIG_GET_PRIVATE (gobject);
 
-	g_free (priv->config_main_file);
 	g_free (priv->config_dir);
-	g_free (priv->config_description);
 	g_free (priv->no_auto_default_file);
 	g_clear_pointer (&priv->keyfile, g_key_file_unref);
 	g_strfreev (priv->plugins);
