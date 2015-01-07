@@ -61,7 +61,6 @@ typedef struct {
 
 	char *config_dir;
 	char *no_auto_default_file;
-	GKeyFile *keyfile;
 
 	char **plugins;
 	gboolean monitor_connection_files;
@@ -225,14 +224,6 @@ gboolean
 nm_config_get_configure_and_quit (NMConfig *config)
 {
 	return NM_CONFIG_GET_PRIVATE (config)->configure_and_quit;
-}
-
-char *
-nm_config_get_value (NMConfig *config, const char *group, const char *key, GError **error)
-{
-	NMConfigPrivate *priv = NM_CONFIG_GET_PRIVATE (config);
-
-	return g_key_file_get_string (priv->keyfile, group, key, error);
 }
 
 gboolean
@@ -422,31 +413,6 @@ nm_config_cmd_line_options_add_to_entries (NMConfigCmdLineOptions *cli,
 }
 
 /************************************************************************/
-
-static NMConfigData *
-_config_data_new (NMConfig *self, const char *config_main_file, const char *config_description, GKeyFile *keyfile)
-{
-	char *connectivity_uri, *connectivity_response;
-	guint connectivity_interval;
-	NMConfigData *config_data;
-
-	connectivity_uri = g_key_file_get_value (keyfile, "connectivity", "uri", NULL);
-	connectivity_interval = g_key_file_get_integer (keyfile, "connectivity", "interval", NULL);
-	connectivity_response = g_key_file_get_value (keyfile, "connectivity", "response", NULL);
-
-	config_data = g_object_new (NM_TYPE_CONFIG_DATA,
-	                            NM_CONFIG_DATA_CONFIG, self,
-	                            NM_CONFIG_DATA_CONFIG_MAIN_FILE, config_main_file,
-	                            NM_CONFIG_DATA_CONFIG_DESCRIPTION, config_description,
-	                            NM_CONFIG_DATA_CONNECTIVITY_URI, connectivity_uri,
-	                            NM_CONFIG_DATA_CONNECTIVITY_INTERVAL, connectivity_interval,
-	                            NM_CONFIG_DATA_CONNECTIVITY_RESPONSE, connectivity_response,
-	                            NULL);
-	g_free (connectivity_uri);
-	g_free (connectivity_response);
-
-	return config_data;
-}
 
 GKeyFile *
 nm_config_create_keyfile ()
@@ -732,10 +698,10 @@ nm_config_reload (NMConfig *self)
 		g_clear_error (&error);
 		return;
 	}
-	new_data = _config_data_new (self, config_main_file, config_description, keyfile);
+	new_data = nm_config_data_new (self, config_main_file, config_description, keyfile);
 	g_free (config_main_file);
 	g_free (config_description);
-	g_key_file_free (keyfile);
+	g_key_file_unref (keyfile);
 
 	g_assert (self == nm_config_data_get_config (new_data));
 
@@ -824,8 +790,6 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 		g_object_unref (self);
 		return FALSE;
 	}
-	g_key_file_free (priv->keyfile);
-	priv->keyfile = keyfile;
 
 	/* Initialize read only private members */
 
@@ -833,29 +797,29 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 		priv->no_auto_default_file = g_strdup (priv->cli.no_auto_default_file);
 	else
 		priv->no_auto_default_file = g_strdup (NM_NO_AUTO_DEFAULT_STATE_FILE);
-	priv->no_auto_default_orig = g_key_file_get_string_list (priv->keyfile, "main", "no-auto-default", NULL, NULL);
+	priv->no_auto_default_orig = g_key_file_get_string_list (keyfile, "main", "no-auto-default", NULL, NULL);
 
-	priv->plugins = g_key_file_get_string_list (priv->keyfile, "main", "plugins", NULL, NULL);
+	priv->plugins = g_key_file_get_string_list (keyfile, "main", "plugins", NULL, NULL);
 	if (!priv->plugins)
 		priv->plugins = g_new0 (char *, 1);
 
-	priv->monitor_connection_files = _get_bool_value (priv->keyfile, "main", "monitor-connection-files", FALSE);
+	priv->monitor_connection_files = _get_bool_value (keyfile, "main", "monitor-connection-files", FALSE);
 
-	priv->auth_polkit = _get_bool_value (priv->keyfile, "main", "auth-polkit", NM_CONFIG_DEFAULT_AUTH_POLKIT);
+	priv->auth_polkit = _get_bool_value (keyfile, "main", "auth-polkit", NM_CONFIG_DEFAULT_AUTH_POLKIT);
 
-	priv->dhcp_client = g_key_file_get_value (priv->keyfile, "main", "dhcp", NULL);
-	priv->dns_mode = g_key_file_get_value (priv->keyfile, "main", "dns", NULL);
+	priv->dhcp_client = g_key_file_get_value (keyfile, "main", "dhcp", NULL);
+	priv->dns_mode = g_key_file_get_value (keyfile, "main", "dns", NULL);
 
-	priv->log_level = g_key_file_get_value (priv->keyfile, "logging", "level", NULL);
-	priv->log_domains = g_key_file_get_value (priv->keyfile, "logging", "domains", NULL);
+	priv->log_level = g_key_file_get_value (keyfile, "logging", "level", NULL);
+	priv->log_domains = g_key_file_get_value (keyfile, "logging", "domains", NULL);
 
-	priv->debug = g_key_file_get_value (priv->keyfile, "main", "debug", NULL);
+	priv->debug = g_key_file_get_value (keyfile, "main", "debug", NULL);
 
-	priv->ignore_carrier = g_key_file_get_string_list (priv->keyfile, "main", "ignore-carrier", NULL, NULL);
+	priv->ignore_carrier = g_key_file_get_string_list (keyfile, "main", "ignore-carrier", NULL, NULL);
 
-	priv->configure_and_quit = _get_bool_value (priv->keyfile, "main", "configure-and-quit", FALSE);
+	priv->configure_and_quit = _get_bool_value (keyfile, "main", "configure-and-quit", FALSE);
 
-	priv->config_data0 = _config_data_new (self, config_main_file, config_description, priv->keyfile);
+	priv->config_data0 = nm_config_data_new (self, config_main_file, config_description, keyfile);
 
 	/* Initialize mutable members. */
 
@@ -866,6 +830,7 @@ nm_config_new (const NMConfigCmdLineOptions *cli, GError **error)
 
 	g_free (config_main_file);
 	g_free (config_description);
+	g_key_file_unref (keyfile);
 	return self;
 }
 
@@ -875,8 +840,6 @@ nm_config_init (NMConfig *config)
 	NMConfigPrivate *priv = NM_CONFIG_GET_PRIVATE (config);
 
 	priv->auth_polkit = NM_CONFIG_DEFAULT_AUTH_POLKIT;
-
-	priv->keyfile = nm_config_create_keyfile ();
 }
 
 static void
@@ -886,7 +849,6 @@ finalize (GObject *gobject)
 
 	g_free (priv->config_dir);
 	g_free (priv->no_auto_default_file);
-	g_clear_pointer (&priv->keyfile, g_key_file_unref);
 	g_strfreev (priv->plugins);
 	g_free (priv->dhcp_client);
 	g_free (priv->dns_mode);
