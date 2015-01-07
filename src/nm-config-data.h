@@ -53,6 +53,8 @@ typedef struct {
 
 GType nm_config_data_get_type (void);
 
+GHashTable *nm_config_data_diff (NMConfigData *old_data, NMConfigData *new_data);
+
 NMConfig *nm_config_data_get_config (const NMConfigData *config_data);
 
 const char *nm_config_data_get_config_main_file (const NMConfigData *config_data);
