@@ -2184,7 +2184,7 @@ nm_settings_connection_set_ready (NMSettingsConnection *connection,
 	ready = !!ready;
 	if (priv->ready != ready) {
 		priv->ready = ready;
-		g_object_notify (G_OBJECT (connection), "ready");
+		g_object_notify (G_OBJECT (connection), NM_SETTINGS_CONNECTION_READY);
 	}
 }
 
