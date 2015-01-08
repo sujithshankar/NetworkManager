@@ -166,6 +166,9 @@ nm_ifcfg_connection_check_devtimeout (NMIfcfgConnection *self)
 	/* ONBOOT=yes, DEVICE and DEVTIMEOUT are set, but device is not present */
 	nm_settings_connection_set_ready (NM_SETTINGS_CONNECTION (self), FALSE);
 
+	nm_log_info (LOGD_SETTINGS, "Waiting %u seconds for %s to appear for connection '%s'",
+	             devtimeout, ifname, nm_connection_get_id (NM_CONNECTION (self)));
+
 	priv->devtimeout_link_changed_handler =
 		g_signal_connect (nm_platform_get (), NM_PLATFORM_SIGNAL_LINK_CHANGED,
 		                  G_CALLBACK (link_changed), self);
