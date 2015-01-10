@@ -75,7 +75,14 @@ struct __nmtst_internal
 extern struct __nmtst_internal __nmtst_internal;
 
 #define NMTST_DEFINE() \
-	struct __nmtst_internal __nmtst_internal = { 0 };
+struct __nmtst_internal __nmtst_internal = { 0 }; \
+\
+__attribute__ ((destructor)) static void \
+_nmtst_exit (void) \
+{ \
+	nmtst_free (); \
+	g_test_assert_expected_messages (); \
+}
 
 
 inline static gboolean
@@ -163,8 +170,6 @@ nmtst_free (void)
 inline static void
 __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_level, const char *log_domains)
 {
-	static gsize atexit_registered = 0;
-	GError *error = NULL;
 	const char *nmtst_debug;
 	gboolean is_debug = FALSE;
 	char *c_log_level = NULL, *c_log_domains = NULL;
@@ -300,10 +305,6 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		g_setenv ("G_MESSAGES_DEBUG", "all", TRUE);
 	}
 
-	if (!nm_utils_init (&error))
-		g_error ("failed to initialize libnm-util: %s", error->message);
-	g_assert (!error);
-
 	/* Delay messages until we setup logging. */
 	for (i = 0; i < debug_messages->len; i++)
 		__NMTST_LOG (g_message, "%s", g_array_index (debug_messages, const char *, i));
@@ -311,11 +312,6 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 	g_strfreev ((char **) g_array_free (debug_messages, FALSE));
 	g_free (c_log_level);
 	g_free (c_log_domains);
-
-	if (g_once_init_enter (&atexit_registered)) {
-		atexit (nmtst_free);
-		g_once_init_leave (&atexit_registered, 1);
-	}
 
 #ifdef __NETWORKMANAGER_UTILS_H__
 	/* ensure that monotonic timestamp is called (because it initially logs a line) */
@@ -950,19 +946,40 @@ nmtst_assert_connection_unnormalizable (NMConnection *con,
 	g_clear_error (&error);
 }
 
-#endif
-
-static inline void
-nmtst_assert_ip4_address_equals (guint32 addr, const char *expected, const char *loc)
+inline static void
+nmtst_assert_setting_verifies (NMSetting *setting)
 {
-    guint32 addr2 = nmtst_inet4_from_string (expected);
+	/* assert that the setting verifies without an error */
 
-    if (addr != addr2)
-        g_error ("assert: %s: ip4 address '%s' expected, but got %s",
-                 loc, expected ? expected : "any", nm_utils_inet4_ntop (addr, NULL));
+	GError *error = NULL;
+	gboolean success;
+
+	g_assert (NM_IS_SETTING (setting));
+
+	success = nm_setting_verify (setting, NULL, &error);
+	g_assert_no_error (error);
+	g_assert (success);
 }
-#define nmtst_assert_ip4_address_equals(addr, expected) \
-    nmtst_assert_ip4_address_equals (addr, expected, G_STRLOC)
+
+inline static void
+nmtst_assert_setting_verify_fails (NMSetting *setting,
+                                   GQuark expect_error_domain,
+                                   gint expect_error_code)
+{
+	/* assert that the setting verification fails */
+
+	GError *error = NULL;
+	gboolean success;
+
+	g_assert (NM_IS_SETTING (setting));
+
+	success = nm_setting_verify (setting, NULL, &error);
+	nmtst_assert_error (error, expect_error_domain, expect_error_code, NULL);
+	g_assert (!success);
+	g_clear_error (&error);
+}
+
+#endif
 
 #ifdef __NM_UTILS_H__
 static inline void

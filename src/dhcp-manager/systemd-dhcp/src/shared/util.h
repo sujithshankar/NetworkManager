@@ -21,6 +21,8 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include "nm-sd-adapt.h"
+
 #include <alloca.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -44,6 +46,7 @@
 #include <sys/socket.h>
 #include <sys/inotify.h>
 
+#if 0 /* NM_IGNORED */
 #if SIZEOF_PID_T == 4
 #  define PID_FMT "%" PRIu32
 #elif SIZEOF_PID_T == 2
@@ -83,9 +86,12 @@
 #else
 #  error Unknown rlim_t size
 #endif
+#endif /* NM_IGNORED */
 
 #include "macro.h"
+#if 0 /* NM_IGNORED */
 #include "missing.h"
+#endif /* NM_IGNORED */
 #include "time-util.h"
 
 /* What is interpreted as whitespace? */
@@ -995,8 +1001,10 @@ int namespace_enter(int pidns_fd, int mntns_fd, int netns_fd, int root_fd);
 bool pid_is_alive(pid_t pid);
 bool pid_is_unwaited(pid_t pid);
 
+#if 0 /* NM_IGNORED */
 int getpeercred(int fd, struct ucred *ucred);
 int getpeersec(int fd, char **ret);
+#endif /* NM_IGNORED */
 
 int writev_safe(int fd, const struct iovec *w, int j);
 
@@ -1014,10 +1022,12 @@ char* mount_test_option(const char *haystack, const char *needle);
 
 void hexdump(FILE *f, const void *p, size_t s);
 
+#if 0 /* NM_IGNORED */
 union file_handle_union {
         struct file_handle handle;
         char padding[sizeof(struct file_handle) + MAX_HANDLE_SZ];
 };
+#endif /* NM_IGNORED */
 
 int update_reboot_param_file(const char *param);
 

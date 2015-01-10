@@ -18,7 +18,8 @@
  * Copyright (C) 2010 - 2013 Red Hat, Inc.
  */
 
-#include <config.h>
+#include "config.h"
+
 #include <string.h>
 #include <pwd.h>
 
@@ -272,7 +273,7 @@ impl_agent_manager_register_with_capabilities (NMAgentManager *self,
 	NMAgentManagerPrivate *priv = NM_AGENT_MANAGER_GET_PRIVATE (self);
 	NMAuthSubject *subject;
 	gulong sender_uid = G_MAXULONG;
-	GError *error = NULL, *local = NULL;
+	GError *error = NULL;
 	NMSecretAgent *agent;
 	NMAuthChain *chain;
 
@@ -286,13 +287,10 @@ impl_agent_manager_register_with_capabilities (NMAgentManager *self,
 	sender_uid = nm_auth_subject_get_unix_process_uid (subject);
 
 	if (   0 != sender_uid
-	    && !nm_session_monitor_uid_has_session (nm_session_monitor_get (),
-	                                            sender_uid,
-	                                            NULL,
-	                                            &local)) {
+	    && !nm_session_monitor_session_exists (sender_uid, FALSE)) {
 		error = g_error_new_literal (NM_AGENT_MANAGER_ERROR,
 		                             NM_AGENT_MANAGER_ERROR_PERMISSION_DENIED,
-		                             local && local->message ? local->message : "Session not found");
+		                             "Session not found");
 		goto done;
 	}
 
@@ -338,7 +336,6 @@ done:
 	if (error)
 		dbus_g_method_return_error (context, error);
 	g_clear_error (&error);
-	g_clear_error (&local);
 	g_clear_object (&subject);
 }
 
@@ -529,12 +526,8 @@ agent_compare_func (gconstpointer aa, gconstpointer bb, gpointer user_data)
 	}
 
 	/* Prefer agents in active sessions */
-	a_active = nm_session_monitor_uid_active (nm_session_monitor_get (),
-	                                          nm_secret_agent_get_owner_uid (a),
-	                                          NULL);
-	b_active = nm_session_monitor_uid_active (nm_session_monitor_get (),
-	                                          nm_secret_agent_get_owner_uid (b),
-	                                          NULL);
+	a_active = nm_session_monitor_session_exists (nm_secret_agent_get_owner_uid (a), TRUE);
+	b_active = nm_session_monitor_session_exists (nm_secret_agent_get_owner_uid (b), TRUE);
 	if (a_active && !b_active)
 		return -1;
 	else if (a_active == b_active)
@@ -704,7 +697,7 @@ connection_request_add_agent (Request *parent, NMSecretAgent *agent)
 	/* Ensure the caller's username exists in the connection's permissions,
 	 * or that the permissions is empty (ie, visible by everyone).
 	 */
-	if (!nm_auth_is_subject_in_acl (req->connection, nm_session_monitor_get (), subject, NULL)) {
+	if (!nm_auth_is_subject_in_acl (req->connection, subject, NULL)) {
 		nm_log_dbg (LOGD_AGENTS, "(%s) agent ignored for secrets request %p/%s (not in ACL)",
 		            nm_secret_agent_get_description (agent),
 		            parent, parent->detail);
@@ -1106,7 +1099,13 @@ get_start (gpointer user_data)
 				            req, parent->detail, req->setting_name);
 
 				/* We don't, so ask some agents for additional secrets */
-				request_next_agent (parent);
+				if (   req->flags & NM_SECRET_AGENT_GET_SECRETS_FLAG_NO_ERRORS
+				    && !parent->pending) {
+					/* The request initiated from GetSecrets() via DBus,
+					 * don't error out if any secrets are missing. */
+					req_complete_success (parent, req->existing_secrets, NULL, NULL);
+				} else
+					request_next_agent (parent);
 			}
 		}
 		g_variant_unref (secrets_dict);

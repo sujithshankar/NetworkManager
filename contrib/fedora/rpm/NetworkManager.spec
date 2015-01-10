@@ -58,19 +58,14 @@
 %global with_wwan 1
 %endif
 
-%ifarch s390 s390x
-# No hardware-based plugins on s390
-%global with_adsl 0
-%global with_bluetooth 0
-%global with_wifi 0
-%global with_wimax 0
-%global with_wwan 0
-%endif
-
 %if (0%{?fedora} && 0%{?fedora} <= 19)
 %global with_team 0
 %endif
 
+%define with_modem_manager_1 0
+%if 0%{?with_bluetooth} || (0%{?with_wwan} && (0%{?rhel} || (0%{?fedora} && 0%{?fedora} > 19)))
+%define with_modem_manager_1 1
+%endif
 
 %global _hardened_build 1
 
@@ -160,7 +155,7 @@ BuildRequires: wimax-devel
 BuildRequires: systemd >= 200-3 systemd-devel
 BuildRequires: libsoup-devel
 BuildRequires: libndp-devel >= 1.0
-%if 0%{?with_bluetooth} || (0%{?with_wwan} && (0%{?rhel} || (0%{?fedora} && 0%{?fedora} > 19)))
+%if 0%{?with_modem_manager_1}
 BuildRequires: ModemManager-glib-devel >= 1.0
 %endif
 %if 0%{?with_nmtui}
@@ -169,6 +164,8 @@ BuildRequires: newt-devel
 BuildRequires: /usr/bin/dbus-launch
 BuildRequires: pygobject3-base
 BuildRequires: dbus-python
+BuildRequires: libselinux-devel
+BuildRequires: polkit-devel
 
 
 %description
@@ -218,6 +215,8 @@ Group: System Environment/Base
 BuildRequires: teamd-devel
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 Obsoletes: NetworkManager < %{obsoletes_nmver}
+# Team was split from main NM binary between 0.9.10 and 1.0
+Obsoletes: NetworkManager < 1.0.0
 
 %description team
 This package contains NetworkManager support for team devices.
@@ -306,8 +305,6 @@ NetworkManager API. See also NetworkManager-libnm-devel.
 %package libnm
 Summary: Libraries for adding NetworkManager support to applications (new API).
 Group: Development/Libraries
-Requires: dbus >= %{dbus_version}
-Requires: dbus-glib >= %{dbus_glib_version}
 
 %description libnm
 This package contains the libraries that make it easier to use some NetworkManager
@@ -322,7 +319,6 @@ Requires: %{name}-devel%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: glib2-devel
 Requires: pkgconfig
-Requires: dbus-glib-devel >= %{dbus_glib_version}
 
 %description libnm-devel
 This package contains the header and pkg-config files for development applications using
@@ -387,7 +383,7 @@ by nm-connection-editor and nm-applet in a non-graphical environment.
 	--with-crypto=nss \
 	--enable-more-warnings=error \
 	--enable-ppp=yes \
-%if 0%{?rhel} || (0%{?fedora} > 19)
+%if 0%{?with_modem_manager_1}
 	--with-modem-manager-1=yes \
 %else
 	--with-modem-manager-1=no \
@@ -413,7 +409,9 @@ by nm-connection-editor and nm-applet in a non-graphical environment.
 %else
 	--enable-teamdctl=no \
 %endif
+	--with-selinux=yes \
 	--enable-polkit=yes \
+	--enable-polkit-agent \
 	--enable-modify-system=yes \
 	--enable-concheck \
 	--with-session-tracking=systemd \
@@ -518,8 +516,12 @@ fi
 %{_libexecdir}/nm-dhcp-helper
 %{_libexecdir}/nm-avahi-autoipd.action
 %{_libexecdir}/nm-dispatcher
+%{_libexecdir}/nm-iface-helper
 %dir %{_libdir}/NetworkManager
 %{_libdir}/NetworkManager/libnm-settings-plugin*.so
+%if 0%{?with_nmtui}
+%exclude %{_mandir}/man1/nmtui*
+%endif
 %{_mandir}/man1/*
 %{_mandir}/man5/*
 %{_mandir}/man8/*
@@ -542,6 +544,8 @@ fi
 %files adsl
 %defattr(-,root,root,0755)
 %{_libdir}/%{name}/libnm-device-plugin-adsl.so
+%else
+%exclude %{_libdir}/%{name}/libnm-device-plugin-adsl.so
 %endif
 
 %if 0%{?with_bluetooth}
@@ -560,6 +564,8 @@ fi
 %files wifi
 %defattr(-,root,root,0755)
 %{_libdir}/%{name}/libnm-device-plugin-wifi.so
+%else
+%exclude %{_libdir}/%{name}/libnm-device-plugin-wifi.so
 %endif
 
 %if 0%{?with_wwan}
@@ -650,6 +656,7 @@ fi
 %{_bindir}/nmtui-edit
 %{_bindir}/nmtui-connect
 %{_bindir}/nmtui-hostname
+%{_mandir}/man1/nmtui*
 %endif
 
 %changelog

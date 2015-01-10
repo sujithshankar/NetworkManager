@@ -19,7 +19,7 @@
  * Copyright (C) 2007 - 2012 Red Hat, Inc.
  */
 
-#include <config.h>
+#include "config.h"
 
 #include <stdlib.h>
 #include <fcntl.h>
@@ -33,6 +33,7 @@
 #include <gio/gio.h>
 #include <glib/gi18n.h>
 
+#include "gsystem-local-alloc.h"
 #include "nm-glib-compat.h"
 #include "nm-manager.h"
 #include "nm-logging.h"
@@ -58,6 +59,7 @@
 #include "nm-session-monitor.h"
 #include "nm-activation-request.h"
 #include "nm-core-internal.h"
+#include "nm-config.h"
 
 #define NM_AUTOIP_DBUS_SERVICE "org.freedesktop.nm_avahi_autoipd"
 #define NM_AUTOIP_DBUS_IFACE   "org.freedesktop.nm_avahi_autoipd"
@@ -213,6 +215,7 @@ enum {
 	USER_PERMISSIONS_CHANGED,
 	ACTIVE_CONNECTION_ADDED,
 	ACTIVE_CONNECTION_REMOVED,
+	CONFIGURE_QUIT,
 
 	LAST_SIGNAL
 };
@@ -684,6 +687,11 @@ check_if_startup_complete (NMManager *self)
 	if (!priv->startup)
 		return;
 
+	if (!nm_settings_get_startup_complete (priv->settings)) {
+		nm_log_dbg (LOGD_CORE, "check_if_startup_complete returns FALSE because of NMSettings");
+		return;
+	}
+
 	for (iter = priv->devices; iter; iter = iter->next) {
 		NMDevice *dev = iter->data;
 
@@ -705,10 +713,21 @@ check_if_startup_complete (NMManager *self)
 
 		g_signal_handlers_disconnect_by_func (dev, G_CALLBACK (device_has_pending_action_changed), self);
 	}
+
+	if (nm_config_get_configure_and_quit (nm_config_get ()))
+		g_signal_emit (self, signals[CONFIGURE_QUIT], 0);
 }
 
 static void
 device_has_pending_action_changed (NMDevice *device,
+                                   GParamSpec *pspec,
+                                   NMManager *self)
+{
+	check_if_startup_complete (self);
+}
+
+static void
+settings_startup_complete_changed (NMSettings *settings,
                                    GParamSpec *pspec,
                                    NMManager *self)
 {
@@ -722,6 +741,9 @@ remove_device (NMManager *manager,
                gboolean allow_unmanage)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (manager);
+
+	nm_log_dbg (LOGD_DEVICE, "(%s): removing device (allow_unmanage %d, managed %d)",
+	            nm_device_get_iface (device), allow_unmanage, nm_device_get_managed (device));
 
 	if (allow_unmanage && nm_device_get_managed (device)) {
 		NMActRequest *req = nm_device_get_act_request (device);
@@ -744,6 +766,8 @@ remove_device (NMManager *manager,
 				nm_device_set_unmanaged_quitting (device);
 			else
 				nm_device_set_unmanaged (device, NM_UNMANAGED_INTERNAL, TRUE, NM_DEVICE_STATE_REASON_REMOVED);
+		} else if (quitting && nm_config_get_configure_and_quit (nm_config_get ())) {
+			nm_device_spawn_iface_helper (device);
 		}
 	}
 
@@ -754,6 +778,7 @@ remove_device (NMManager *manager,
 
 	g_signal_emit (manager, signals[DEVICE_REMOVED], 0, device);
 	g_object_notify (G_OBJECT (manager), NM_MANAGER_DEVICES);
+	nm_device_removed (device);
 
 	nm_dbus_manager_unregister_object (priv->dbus_mgr, device);
 	g_object_unref (device);
@@ -1450,7 +1475,6 @@ device_auth_request_cb (NMDevice *device,
 
 	/* Ensure the subject has permissions for this connection */
 	if (connection && !nm_auth_is_subject_in_acl (connection,
-	                                              nm_session_monitor_get (),
 	                                              subject,
 	                                              &error_desc)) {
 		error = g_error_new_literal (NM_MANAGER_ERROR,
@@ -1644,7 +1668,14 @@ recheck_assume_connection (NMDevice *device, gpointer user_data)
 
 	if (manager_sleeping (self))
 		return FALSE;
-	if (nm_device_get_unmanaged_flag (device, NM_UNMANAGED_USER))
+	if (nm_device_get_unmanaged_flag (device, NM_UNMANAGED_USER) ||
+	    nm_device_get_unmanaged_flag (device, NM_UNMANAGED_INTERNAL) ||
+	    nm_device_get_unmanaged_flag (device, NM_UNMANAGED_EXTERNAL_DOWN) ||
+	    nm_device_get_unmanaged_flag (device, NM_UNMANAGED_PARENT))
+		return FALSE;
+
+	state = nm_device_get_state (device);
+	if (state > NM_DEVICE_STATE_DISCONNECTED)
 		return FALSE;
 
 	connection = get_existing_connection (self, device, &generated);
@@ -1653,11 +1684,6 @@ recheck_assume_connection (NMDevice *device, gpointer user_data)
 		            nm_device_get_iface (device));
 		return FALSE;
 	}
-
-	state = nm_device_get_state (device);
-
-	if (state > NM_DEVICE_STATE_DISCONNECTED)
-		return FALSE;
 
 	if (state == NM_DEVICE_STATE_UNMANAGED) {
 		was_unmanaged = TRUE;
@@ -1811,6 +1837,7 @@ add_device (NMManager *self, NMDevice *device, gboolean try_assume)
 	nm_device_set_initial_unmanaged_flag (device, NM_UNMANAGED_INTERNAL, sleeping);
 
 	nm_device_dbus_export (device);
+	nm_device_finish_init (device);
 
 	if (try_assume) {
 		connection_assumed = recheck_assume_connection (device, self);
@@ -2651,7 +2678,6 @@ _internal_activate_device (NMManager *self, NMActiveConnection *active, GError *
 		subject = nm_active_connection_get_subject (active);
 		if (existing_connection &&
 		    !nm_auth_is_subject_in_acl (existing_connection,
-			                            nm_session_monitor_get (),
 			                            subject,
 			                            &error_desc)) {
 			g_set_error (error,
@@ -2943,7 +2969,6 @@ nm_manager_activate_connection (NMManager *self,
 
 	/* Ensure the subject has permissions for this connection */
 	if (!nm_auth_is_subject_in_acl (connection,
-	                                nm_session_monitor_get (),
 	                                subject,
 	                                &error_desc)) {
 		g_set_error_literal (error,
@@ -2997,7 +3022,6 @@ validate_activation_request (NMManager *self,
 
 	/* Ensure the subject has permissions for this connection */
 	if (!nm_auth_is_subject_in_acl (connection,
-	                                nm_session_monitor_get (),
 	                                subject,
 	                                &error_desc)) {
 		g_set_error_literal (error,
@@ -3527,7 +3551,6 @@ impl_manager_deactivate_connection (NMManager *self,
 
 	/* Ensure the subject has permissions for this connection */
 	if (!nm_auth_is_subject_in_acl (connection,
-	                                nm_session_monitor_get (),
 	                                subject,
 	                                &error_desc)) {
 		error = g_error_new_literal (NM_MANAGER_ERROR,
@@ -4166,6 +4189,16 @@ nm_manager_start (NMManager *self)
 	check_if_startup_complete (self);
 }
 
+void
+nm_manager_stop (NMManager *self)
+{
+	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
+
+	/* Remove all devices */
+	while (priv->devices)
+		remove_device (self, NM_DEVICE (priv->devices->data), TRUE, TRUE);
+}
+
 static gboolean
 handle_firmware_changed (gpointer user_data)
 {
@@ -4696,6 +4729,8 @@ nm_manager_new (NMSettings *settings,
 	priv->prop_filter_added = TRUE;
 
 	priv->settings = g_object_ref (settings);
+	g_signal_connect (priv->settings, "notify::" NM_SETTINGS_STARTUP_COMPLETE,
+	                  G_CALLBACK (settings_startup_complete_changed), singleton);
 
 	priv->state_file = g_strdup (state_file);
 
@@ -4989,9 +5024,7 @@ dispose (GObject *object)
 	                                      G_CALLBACK (authority_changed_cb),
 	                                      manager);
 
-	/* Remove all devices */
-	while (priv->devices)
-		remove_device (manager, NM_DEVICE (priv->devices->data), TRUE, TRUE);
+	g_assert (priv->devices == NULL);
 
 	if (priv->ac_cleanup_id) {
 		g_source_remove (priv->ac_cleanup_id);
@@ -5256,6 +5289,13 @@ nm_manager_class_init (NMManagerClass *manager_class)
 		              G_SIGNAL_RUN_FIRST,
 		              0, NULL, NULL, NULL,
 		              G_TYPE_NONE, 1, G_TYPE_OBJECT);
+
+	signals[CONFIGURE_QUIT] =
+		g_signal_new (NM_MANAGER_CONFIGURE_QUIT,
+		              G_OBJECT_CLASS_TYPE (object_class),
+		              G_SIGNAL_RUN_FIRST,
+		              0, NULL, NULL, NULL,
+		              G_TYPE_NONE, 0);
 
 	nm_dbus_manager_register_exported_type (nm_dbus_manager_get (),
 	                                        G_TYPE_FROM_CLASS (manager_class),

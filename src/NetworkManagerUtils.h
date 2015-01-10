@@ -24,9 +24,10 @@
 
 #include <glib.h>
 #include <stdio.h>
+#include <arpa/inet.h>
 
 #include "nm-connection.h"
-#include "nm-platform.h"
+#include "nm-types.h"
 
 gboolean nm_ethernet_address_is_valid (gconstpointer addr, gssize len);
 
@@ -38,20 +39,17 @@ const struct in6_addr *nm_utils_ip6_address_clear_host_address (struct in6_addr 
  * @metric: the route metric
  *
  * For IPv6 route, kernel treats the value 0 as IP6_RT_PRIO_USER (1024).
- * Thus, when comparing metric (values), we want to treat zero as NM_PLATFORM_ROUTE_METRIC_DEFAULT.
+ * Thus, when comparing metric (values), we want to treat zero as NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6.
  *
  * Returns: @metric, if @metric is not zero, otherwise 1024.
  */
 static inline guint32
 nm_utils_ip6_route_metric_normalize (guint32 metric)
 {
-	return metric ? metric : 1024 /*NM_PLATFORM_ROUTE_METRIC_DEFAULT*/;
+	return metric ? metric : 1024 /*NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6*/;
 }
 
 int nm_spawn_process (const char *args);
-
-/* macro to return strlen() of a compile time string. */
-#define STRLEN(str)     ( sizeof ("" str) - 1 )
 
 /* check if @flags has exactly one flag (@check) set. You should call this
  * only with @check being a compile time constant and a power of two. */
@@ -159,6 +157,10 @@ void nm_utils_log_connection_diff (NMConnection *connection, NMConnection *diff_
 
 gint64 nm_utils_ascii_str_to_int64 (const char *str, guint base, gint64 min, gint64 max, gint64 fallback);
 
+#define NM_UTILS_UUID_NS "b425e9fb-7598-44b4-9e3b-5a2e3aaa4905"
+
+char *nm_utils_uuid_generate_from_strings (const char *string1, ...) G_GNUC_NULL_TERMINATED;
+
 #define NM_UTILS_NS_PER_SECOND  ((gint64) 1000000000)
 gint64 nm_utils_get_monotonic_timestamp_ns (void);
 gint64 nm_utils_get_monotonic_timestamp_us (void);
@@ -167,6 +169,7 @@ gint32 nm_utils_get_monotonic_timestamp_s (void);
 
 const char *ASSERT_VALID_PATH_COMPONENT (const char *name) G_GNUC_WARN_UNUSED_RESULT;
 const char *nm_utils_ip6_property_path (const char *ifname, const char *property);
+const char *nm_utils_ip4_property_path (const char *ifname, const char *property);
 
 gboolean nm_utils_is_specific_hostname (const char *name);
 
@@ -188,7 +191,7 @@ typedef struct {
 	};
 } NMUtilsIPv6IfaceId;
 
-#define NM_UTILS_IPV6_IFACE_ID_INIT { .id = 0 };
+#define NM_UTILS_IPV6_IFACE_ID_INIT { .id = 0 }
 
 gboolean nm_utils_get_ipv6_interface_identifier (NMLinkType link_type,
                                                  const guint8 *hwaddr,

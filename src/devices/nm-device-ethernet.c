@@ -20,6 +20,7 @@
  */
 
 #include "config.h"
+
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <netinet/in.h>
@@ -264,7 +265,9 @@ constructor (GType type,
 		int ifindex = nm_device_get_ifindex (NM_DEVICE (object));
 		NMLinkType link_type = nm_platform_link_get_type (ifindex);
 
-		g_assert (link_type == NM_LINK_TYPE_ETHERNET || link_type == NM_LINK_TYPE_VETH);
+		g_assert (   link_type == NM_LINK_TYPE_ETHERNET
+		          || link_type == NM_LINK_TYPE_VETH
+		          || link_type == NM_LINK_TYPE_NONE);
 #endif
 
 		/* s390 stuff */
@@ -1388,7 +1391,8 @@ deactivate (NMDevice *device)
 		NM_DEVICE_ETHERNET_GET_PRIVATE (device)->last_pppoe_time = nm_utils_get_monotonic_timestamp_s ();
 
 	/* Reset MAC address back to initial address */
-	nm_device_set_hw_addr (device, priv->initial_hw_addr, "reset", LOGD_ETHER);
+	if (priv->initial_hw_addr)
+		nm_device_set_hw_addr (device, priv->initial_hw_addr, "reset", LOGD_ETHER);
 }
 
 static gboolean
@@ -1535,15 +1539,14 @@ update_connection (NMDevice *device, NMConnection *connection)
 
 	/* s390 */
 	if (priv->subchannels) {
-		GPtrArray *subchan_arr = g_ptr_array_sized_new (3);
-		if (priv->subchan1)
-			 g_ptr_array_add (subchan_arr, priv->subchan1);
-		if (priv->subchan2)
-			 g_ptr_array_add (subchan_arr, priv->subchan2);
-		if (priv->subchan3)
-			 g_ptr_array_add (subchan_arr, priv->subchan3);
-		g_object_set (s_wired, NM_SETTING_WIRED_S390_SUBCHANNELS, subchan_arr, NULL);
-		g_ptr_array_free (subchan_arr, TRUE);
+		char **subchannels = g_new (char *, 3 + 1);
+
+		subchannels[0] = g_strdup (priv->subchan1);
+		subchannels[1] = g_strdup (priv->subchan2);
+		subchannels[2] = g_strdup (priv->subchan3);
+		subchannels[3] = NULL;
+		g_object_set (s_wired, NM_SETTING_WIRED_S390_SUBCHANNELS, subchannels, NULL);
+		g_strfreev (subchannels);
 	}
 	if (priv->s390_nettype)
 		g_object_set (s_wired, NM_SETTING_WIRED_S390_NETTYPE, priv->s390_nettype, NULL);

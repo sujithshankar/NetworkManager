@@ -21,6 +21,8 @@
  * Copyright 2007 - 2011 Red Hat, Inc.
  */
 
+#include "config.h"
+
 #include <glib.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -410,7 +412,6 @@ int
 main (int argc, char **argv)
 {
 	GError *error = NULL;
-	int ret;
 
 	nmtst_init (&argc, &argv, TRUE);
 
@@ -460,10 +461,6 @@ main (int argc, char **argv)
 	                      "pkcs8-enc-key.pem, 1234567890",
 	                      test_pkcs8);
 
-	ret = g_test_run ();
-
-	crypto_deinit ();
-
-	return ret;
+	return g_test_run ();
 }
 

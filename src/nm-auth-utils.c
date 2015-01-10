@@ -18,7 +18,8 @@
  * Copyright (C) 2010 Red Hat, Inc.
  */
 
-#include <config.h>
+#include "config.h"
+
 #include <string.h>
 #include <gio/gio.h>
 
@@ -418,17 +419,14 @@ nm_auth_chain_unref (NMAuthChain *self)
 
 gboolean
 nm_auth_is_subject_in_acl (NMConnection *connection,
-                           NMSessionMonitor *smon,
                            NMAuthSubject *subject,
                            char **out_error_desc)
 {
 	NMSettingConnection *s_con;
 	const char *user = NULL;
-	GError *local = NULL;
 	gulong uid;
 
 	g_return_val_if_fail (connection != NULL, FALSE);
-	g_return_val_if_fail (smon != NULL, FALSE);
 	g_return_val_if_fail (NM_IS_AUTH_SUBJECT (subject), FALSE);
 	g_return_val_if_fail (nm_auth_subject_is_internal (subject) || nm_auth_subject_is_unix_process (subject), FALSE);
 
@@ -442,17 +440,13 @@ nm_auth_is_subject_in_acl (NMConnection *connection,
 		return TRUE;
 
 	/* Reject the request if the request comes from no session at all */
-	if (!nm_session_monitor_uid_has_session (smon, uid, &user, &local)) {
-		if (out_error_desc) {
-			*out_error_desc = g_strdup_printf ("No session found for uid %lu (%s)",
-			                                   uid,
-			                                   local && local->message ? local->message : "unknown");
-		}
-		g_clear_error (&local);
+	if (!nm_session_monitor_session_exists (uid, FALSE)) {
+		if (out_error_desc)
+			*out_error_desc = g_strdup_printf ("No session found for uid %lu", uid);
 		return FALSE;
 	}
 
-	if (!user) {
+	if (!nm_session_monitor_uid_to_user (uid, &user)) {
 		if (out_error_desc)
 			*out_error_desc = g_strdup_printf ("Could not determine username for uid %lu", uid);
 		return FALSE;

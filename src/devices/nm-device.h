@@ -216,6 +216,8 @@ GType nm_device_get_type (void);
 const char *    nm_device_get_path (NMDevice *dev);
 void            nm_device_dbus_export   (NMDevice *device);
 
+void            nm_device_finish_init   (NMDevice *device);
+
 const char *	nm_device_get_udi		(NMDevice *dev);
 const char *	nm_device_get_iface		(NMDevice *dev);
 int             nm_device_get_ifindex	(NMDevice *dev);
@@ -228,6 +230,8 @@ const char *	nm_device_get_type_desc (NMDevice *dev);
 NMDeviceType	nm_device_get_device_type	(NMDevice *dev);
 
 int			nm_device_get_priority (NMDevice *dev);
+guint32     nm_device_get_ip4_route_metric (NMDevice *dev);
+guint32     nm_device_get_ip6_route_metric (NMDevice *dev);
 
 const char *    nm_device_get_hw_address   (NMDevice *dev);
 
@@ -251,6 +255,8 @@ NMDevice *      nm_device_get_master        (NMDevice *dev);
 NMActRequest *	nm_device_get_act_request	(NMDevice *dev);
 NMConnection *  nm_device_get_connection	(NMDevice *dev);
 
+void            nm_device_removed        (NMDevice *dev);
+
 gboolean        nm_device_is_available   (NMDevice *dev);
 gboolean        nm_device_has_carrier    (NMDevice *dev);
 
@@ -272,6 +278,8 @@ gboolean nm_device_complete_connection (NMDevice *device,
                                         GError **error);
 
 gboolean nm_device_check_connection_compatible (NMDevice *device, NMConnection *connection);
+
+gboolean nm_device_uses_assumed_connection (NMDevice *device);
 
 gboolean nm_device_can_assume_active_connection (NMDevice *device);
 
@@ -295,12 +303,16 @@ RfKillType nm_device_get_rfkill_type (NMDevice *device);
  * @NM_UNMANAGED_INTERNAL: %TRUE when unmanaged by internal decision (ie,
  *   because NM is sleeping or not managed for some other reason)
  * @NM_UNMANAGED_USER: %TRUE when unmanaged by user decision (via unmanaged-specs)
+ * @NM_UNMANAGED_PARENT: %TRUE when unmanaged due to parent device being unmanaged
+ * @NM_UNMANAGED_EXTERNAL_DOWN: %TRUE when unmanaged because !IFF_UP and not created by NM
  */
 typedef enum {
-	NM_UNMANAGED_NONE     = 0x00,
-	NM_UNMANAGED_DEFAULT  = 0x01,
-	NM_UNMANAGED_INTERNAL = 0x02,
-	NM_UNMANAGED_USER     = 0x04,
+	NM_UNMANAGED_NONE          = 0x00,
+	NM_UNMANAGED_DEFAULT       = 0x01,
+	NM_UNMANAGED_INTERNAL      = 0x02,
+	NM_UNMANAGED_USER          = 0x04,
+	NM_UNMANAGED_PARENT        = 0x08,
+	NM_UNMANAGED_EXTERNAL_DOWN = 0x10,
 
 	/* Boundary value */
 	__NM_UNMANAGED_LAST,
@@ -357,6 +369,11 @@ gboolean nm_device_notify_component_added (NMDevice *device, GObject *component)
 gboolean nm_device_owns_iface (NMDevice *device, const char *iface);
 
 NMConnection *nm_device_new_default_connection (NMDevice *self);
+
+const NMPlatformIP4Route *nm_device_get_ip4_default_route (NMDevice *self, gboolean *out_is_assumed);
+const NMPlatformIP6Route *nm_device_get_ip6_default_route (NMDevice *self, gboolean *out_is_assumed);
+
+void nm_device_spawn_iface_helper (NMDevice *self);
 
 G_END_DECLS
 

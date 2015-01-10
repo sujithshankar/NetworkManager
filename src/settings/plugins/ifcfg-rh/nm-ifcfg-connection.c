@@ -18,6 +18,8 @@
  * Copyright (C) 2008 - 2011 Red Hat, Inc.
  */
 
+#include "config.h"
+
 #include <string.h>
 
 #include <glib/gstdio.h>
@@ -31,6 +33,8 @@
 #include <nm-setting-pppoe.h>
 #include <nm-setting-wireless-security.h>
 #include <nm-setting-8021x.h>
+#include <nm-platform.h>
+#include <nm-logging.h>
 
 #include "common.h"
 #include "nm-config.h"
@@ -61,6 +65,9 @@ typedef struct {
 
 	char *unmanaged_spec;
 	char *unrecognized_spec;
+
+	gulong devtimeout_link_changed_handler;
+	guint devtimeout_timeout_id;
 } NMIfcfgConnectionPrivate;
 
 enum {
@@ -77,6 +84,97 @@ enum {
 };
 
 static guint signals[LAST_SIGNAL] = { 0 };
+
+static gboolean
+devtimeout_ready (gpointer user_data)
+{
+	NMIfcfgConnection *self = user_data;
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (self);
+
+	priv->devtimeout_timeout_id = 0;
+	nm_settings_connection_set_ready (NM_SETTINGS_CONNECTION (self), TRUE);
+	return FALSE;
+}
+
+static void
+link_changed (NMPlatform *platform, int ifindex, NMPlatformLink *link,
+              NMPlatformSignalChangeType change_type, NMPlatformReason reason,
+              NMConnection *self)
+{
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (self);
+	const char *ifname;
+
+	ifname = nm_connection_get_interface_name (self);
+	if (g_strcmp0 (link->name, ifname) != 0)
+		return;
+
+	/* Shouldn't happen, but... */
+	if (change_type == NM_PLATFORM_SIGNAL_REMOVED)
+		return;
+
+	nm_log_info (LOGD_SETTINGS, "Device %s appeared; connection '%s' now ready",
+	             ifname, nm_connection_get_id (self));
+
+	g_signal_handler_disconnect (platform, priv->devtimeout_link_changed_handler);
+	priv->devtimeout_link_changed_handler = 0;
+	g_source_remove (priv->devtimeout_timeout_id);
+
+	/* Don't declare the connection ready right away, since NMManager may not have
+	 * started processing the device yet.
+	 */
+	priv->devtimeout_timeout_id = g_idle_add (devtimeout_ready, self);
+}
+
+static gboolean
+devtimeout_expired (gpointer user_data)
+{
+	NMIfcfgConnection *self = user_data;
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (self);
+
+	nm_log_info (LOGD_SETTINGS, "Device for connection '%s' did not appear before timeout",
+	             nm_connection_get_id (NM_CONNECTION (self)));
+
+	g_signal_handler_disconnect (nm_platform_get (), priv->devtimeout_link_changed_handler);
+	priv->devtimeout_link_changed_handler = 0;
+	priv->devtimeout_timeout_id = 0;
+
+	nm_settings_connection_set_ready (NM_SETTINGS_CONNECTION (self), TRUE);
+	return FALSE;
+}
+
+static void
+nm_ifcfg_connection_check_devtimeout (NMIfcfgConnection *self)
+{
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (self);
+	NMSettingConnection *s_con;
+	const char *ifname;
+	guint devtimeout;
+
+	s_con = nm_connection_get_setting_connection (NM_CONNECTION (self));
+
+	if (!nm_setting_connection_get_autoconnect (s_con))
+		return;
+	ifname = nm_setting_connection_get_interface_name (s_con);
+	if (!ifname)
+		return;
+	devtimeout = devtimeout_from_file (nm_ifcfg_connection_get_path (self));
+	if (!devtimeout)
+		return;
+
+	if (nm_platform_link_get_ifindex (ifname) != 0)
+		return;
+
+	/* ONBOOT=yes, DEVICE and DEVTIMEOUT are set, but device is not present */
+	nm_settings_connection_set_ready (NM_SETTINGS_CONNECTION (self), FALSE);
+
+	nm_log_info (LOGD_SETTINGS, "Waiting %u seconds for %s to appear for connection '%s'",
+	             devtimeout, ifname, nm_connection_get_id (NM_CONNECTION (self)));
+
+	priv->devtimeout_link_changed_handler =
+		g_signal_connect (nm_platform_get (), NM_PLATFORM_SIGNAL_LINK_CHANGED,
+		                  G_CALLBACK (link_changed), self);
+	priv->devtimeout_timeout_id = g_timeout_add_seconds (devtimeout, devtimeout_expired, self);
+}
 
 static void
 files_changed_cb (NMInotifyHelper *ih,
@@ -100,8 +198,7 @@ files_changed_cb (NMInotifyHelper *ih,
 NMIfcfgConnection *
 nm_ifcfg_connection_new (NMConnection *source,
                          const char *full_path,
-                         GError **error,
-                         gboolean *ignore_error)
+                         GError **error)
 {
 	GObject *object;
 	NMConnection *tmp;
@@ -115,18 +212,9 @@ nm_ifcfg_connection_new (NMConnection *source,
 	if (source)
 		tmp = g_object_ref (source);
 	else {
-		char *keyfile = NULL, *routefile = NULL, *route6file = NULL;
-
-		tmp = connection_from_file (full_path, NULL, NULL,
+		tmp = connection_from_file (full_path,
 		                            &unhandled_spec,
-		                            &keyfile,
-		                            &routefile,
-		                            &route6file,
-		                            error,
-		                            ignore_error);
-		g_free (keyfile);
-		g_free (routefile);
-		g_free (route6file);
+		                            error);
 		if (!tmp)
 			return NULL;
 
@@ -149,8 +237,10 @@ nm_ifcfg_connection_new (NMConnection *source,
 	                                             update_unsaved,
 	                                             error)) {
 		/* Set the path and start monitoring */
-		if (full_path)
+		if (full_path) {
 			nm_ifcfg_connection_set_path (NM_IFCFG_CONNECTION (object), full_path);
+			nm_ifcfg_connection_check_devtimeout (NM_IFCFG_CONNECTION (object));
+		}
 	} else
 		g_clear_object (&object);
 
@@ -265,10 +355,7 @@ commit_changes (NMSettingsConnection *connection,
 	 * it if it's really changed.
 	 */
 	if (priv->path) {
-		reread = connection_from_file (priv->path, NULL, NULL,
-		                               NULL, NULL, NULL, NULL,
-		                               &error, NULL);
-		g_clear_error (&error);
+		reread = connection_from_file (priv->path, NULL, NULL);
 		if (reread) {
 			same = nm_connection_compare (NM_CONNECTION (connection),
 			                              reread,
@@ -379,7 +466,19 @@ get_property (GObject *object, guint prop_id,
 static void
 dispose (GObject *object)
 {
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (object);
+
 	path_watch_stop (NM_IFCFG_CONNECTION (object));
+
+	if (priv->devtimeout_link_changed_handler) {
+		g_signal_handler_disconnect (nm_platform_get (),
+		                             priv->devtimeout_link_changed_handler);
+		priv->devtimeout_link_changed_handler = 0;
+	}
+	if (priv->devtimeout_timeout_id) {
+		g_source_remove (priv->devtimeout_timeout_id);
+		priv->devtimeout_timeout_id = 0;
+	}
 
 	G_OBJECT_CLASS (nm_ifcfg_connection_parent_class)->dispose (object);
 }

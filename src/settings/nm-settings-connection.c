@@ -37,6 +37,7 @@
 #include "NetworkManagerUtils.h"
 #include "nm-properties-changed-signal.h"
 #include "nm-core-internal.h"
+#include "nm-glib-compat.h"
 
 #define SETTINGS_TIMESTAMPS_FILE  NMSTATEDIR "/timestamps"
 #define SETTINGS_SEEN_BSSIDS_FILE NMSTATEDIR "/seen-bssids"
@@ -81,6 +82,7 @@ enum {
 	PROP_0 = 0,
 	PROP_VISIBLE,
 	PROP_UNSAVED,
+	PROP_READY,
 	PROP_FLAGS,
 };
 
@@ -94,10 +96,10 @@ static guint signals[LAST_SIGNAL] = { 0 };
 
 typedef struct {
 	NMAgentManager *agent_mgr;
-	NMSessionMonitor *session_monitor;
 	guint session_changed_id;
 
 	NMSettingsConnectionFlags flags;
+	gboolean ready;
 
 	guint updated_idle_id;
 
@@ -261,14 +263,18 @@ nm_settings_connection_recheck_visibility (NMSettingsConnection *self)
 	}
 
 	for (i = 0; i < num; i++) {
-		const char *puser;
+		const char *user;
+		uid_t uid;
 
-		if (nm_setting_connection_get_permission (s_con, i, NULL, &puser, NULL)) {
-			if (nm_session_monitor_user_has_session (priv->session_monitor, puser, NULL, NULL)) {
-				set_visible (self, TRUE);
-				return;
-			}
-		}
+		if (!nm_setting_connection_get_permission (s_con, i, NULL, &user, NULL))
+			continue;
+		if (!nm_session_monitor_user_to_uid (user, &uid))
+			continue;
+		if (!nm_session_monitor_session_exists (uid, FALSE))
+			continue;
+
+		set_visible (self, TRUE);
+		return;
 	}
 
 	set_visible (self, FALSE);
@@ -1066,7 +1072,6 @@ auth_start (NMSettingsConnection *self,
 
 	/* Ensure the caller can view this connection */
 	if (!nm_auth_is_subject_in_acl (NM_CONNECTION (self),
-	                                priv->session_monitor,
 	                                subject,
 	                                &error_desc)) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
@@ -1227,6 +1232,12 @@ has_some_secrets_cb (NMSetting *setting,
                      gpointer user_data)
 {
 	GParamSpec *pspec;
+
+	if (NM_IS_SETTING_VPN (setting)) {
+		if (nm_setting_vpn_get_num_secrets (NM_SETTING_VPN(setting)))
+			*((gboolean *) user_data) = TRUE;
+		return;
+	}
 
 	pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (G_OBJECT (setting)), key);
 	if (pspec) {
@@ -1423,7 +1434,6 @@ impl_settings_connection_update_helper (NMSettingsConnection *self,
 	 * invisible to yourself.
 	 */
 	if (!nm_auth_is_subject_in_acl (tmp ? tmp : NM_CONNECTION (self),
-	                                priv->session_monitor,
 	                                subject,
 	                                &error_desc)) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
@@ -1603,7 +1613,8 @@ dbus_get_secrets_auth_cb (NMSettingsConnection *self,
 		call_id = nm_settings_connection_get_secrets (self,
 			                                          subject,
 			                                          setting_name,
-			                                          NM_SECRET_AGENT_GET_SECRETS_FLAG_USER_REQUESTED,
+			                                            NM_SECRET_AGENT_GET_SECRETS_FLAG_USER_REQUESTED
+			                                          | NM_SECRET_AGENT_GET_SECRETS_FLAG_NO_ERRORS,
 			                                          NULL,
 			                                          dbus_get_agent_secrets_cb,
 			                                          context,
@@ -2158,6 +2169,25 @@ nm_settings_connection_get_nm_generated_assumed (NMSettingsConnection *connectio
 	return NM_FLAGS_HAS (nm_settings_connection_get_flags (connection), NM_SETTINGS_CONNECTION_FLAGS_NM_GENERATED_ASSUMED);
 }
 
+gboolean
+nm_settings_connection_get_ready (NMSettingsConnection *connection)
+{
+	return NM_SETTINGS_CONNECTION_GET_PRIVATE (connection)->ready;
+}
+
+void
+nm_settings_connection_set_ready (NMSettingsConnection *connection,
+                                  gboolean ready)
+{
+	NMSettingsConnectionPrivate *priv = NM_SETTINGS_CONNECTION_GET_PRIVATE (connection);
+
+	ready = !!ready;
+	if (priv->ready != ready) {
+		priv->ready = ready;
+		g_object_notify (G_OBJECT (connection), NM_SETTINGS_CONNECTION_READY);
+	}
+}
+
 /**************************************************************/
 
 static void
@@ -2166,12 +2196,9 @@ nm_settings_connection_init (NMSettingsConnection *self)
 	NMSettingsConnectionPrivate *priv = NM_SETTINGS_CONNECTION_GET_PRIVATE (self);
 
 	priv->visible = FALSE;
+	priv->ready = TRUE;
 
-	priv->session_monitor = nm_session_monitor_get ();
-	priv->session_changed_id = g_signal_connect (priv->session_monitor,
-	                                             NM_SESSION_MONITOR_CHANGED,
-	                                             G_CALLBACK (session_changed_cb),
-	                                             self);
+	priv->session_changed_id = nm_session_monitor_connect (session_changed_cb, self);
 
 	priv->agent_mgr = nm_agent_manager_get ();
 
@@ -2222,7 +2249,7 @@ dispose (GObject *object)
 	set_visible (self, FALSE);
 
 	if (priv->session_changed_id) {
-		g_signal_handler_disconnect (priv->session_monitor, priv->session_changed_id);
+		nm_session_monitor_disconnect (priv->session_changed_id);
 		priv->session_changed_id = 0;
 	}
 	g_clear_object (&priv->agent_mgr);
@@ -2244,6 +2271,9 @@ get_property (GObject *object, guint prop_id,
 	case PROP_UNSAVED:
 		g_value_set_boolean (value, nm_settings_connection_get_unsaved (self));
 		break;
+	case PROP_READY:
+		g_value_set_boolean (value, nm_settings_connection_get_ready (self));
+		break;
 	case PROP_FLAGS:
 		g_value_set_uint (value, nm_settings_connection_get_flags (self));
 		break;
@@ -2260,6 +2290,9 @@ set_property (GObject *object, guint prop_id,
 	NMSettingsConnection *self = NM_SETTINGS_CONNECTION (object);
 
 	switch (prop_id) {
+	case PROP_READY:
+		nm_settings_connection_set_ready (self, g_value_get_boolean (value));
+		break;
 	case PROP_FLAGS:
 		nm_settings_connection_set_flags_all (self, g_value_get_uint (value));
 		break;
@@ -2298,6 +2331,13 @@ nm_settings_connection_class_init (NMSettingsConnectionClass *class)
 		 g_param_spec_boolean (NM_SETTINGS_CONNECTION_UNSAVED, "", "",
 		                       FALSE,
 		                       G_PARAM_READABLE |
+		                       G_PARAM_STATIC_STRINGS));
+
+	g_object_class_install_property
+		(object_class, PROP_READY,
+		 g_param_spec_boolean (NM_SETTINGS_CONNECTION_READY, "", "",
+		                       TRUE,
+		                       G_PARAM_READWRITE |
 		                       G_PARAM_STATIC_STRINGS));
 
 	g_object_class_install_property

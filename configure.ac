@@ -1,12 +1,11 @@
 AC_PREREQ([2.63])
 
 dnl The NM version number
-m4_define([nm_major_version], [0])
-m4_define([nm_minor_version], [9])
-m4_define([nm_micro_version], [11])
-m4_define([nm_nano_version],  [0])
+m4_define([nm_major_version], [1])
+m4_define([nm_minor_version], [1])
+m4_define([nm_micro_version], [0])
 m4_define([nm_version],
-          [nm_major_version.nm_minor_version.nm_micro_version.nm_nano_version])
+          [nm_major_version.nm_minor_version.nm_micro_version])
 m4_define([nm_git_sha], [m4_esyscmd([ ( [ -d ./.git/ ] && [ "$(readlink -f ./.git/)" = "$(readlink -f "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null)" ] && git rev-parse --verify -q HEAD 2>/dev/null ) || true ])])
 
 AC_INIT([NetworkManager], [nm_version],
@@ -60,6 +59,7 @@ AC_SUBST(NM_MAJOR_VERSION)
 AC_SUBST(NM_MINOR_VERSION)
 AC_SUBST(NM_MICRO_VERSION)
 AC_SUBST(NM_VERSION)
+AC_DEFINE_UNQUOTED(NM_GIT_SHA,"$NM_GIT_SHA",[git commit id of the original source code version])
 
 dnl
 dnl Checks for typedefs, structures, and compiler characteristics.
@@ -332,30 +332,40 @@ fi
 PKG_CHECK_MODULES(SYSTEMD_200, [systemd >= 200], [have_systemd_200=yes],[have_systemd_200=no])
 AM_CONDITIONAL(HAVE_SYSTEMD_200, test "${have_systemd_200}" = "yes")
 
-# session tracking support
-AC_MSG_CHECKING([Session tracking support])
+# Session tracking support
+AC_ARG_WITH(systemd-logind, AS_HELP_STRING([--with-systemd-logind=yes|no],
+	[Support systemd session tracking]))
+AC_ARG_WITH(consolekit, AS_HELP_STRING([--with-consolekit=yes|no],
+	[Support consolekit session tracking]))
 AC_ARG_WITH(session-tracking, AS_HELP_STRING([--with-session-tracking=systemd|consolekit|no],
-	[Select session tracking support (default: consolekit)]))
-# default to consolekit
-AS_IF([test -z "$with_session_tracking"], with_session_tracking=consolekit)
-AS_IF([test "$with_session_tracking" = "ck"], with_session_tracking=consolekit)
-AS_IF([test "$with_session_tracking" = "none"], with_session_tracking=no)
-# check value
-AS_IF([! (echo "$with_session_tracking" | grep -q -E "^(systemd|consolekit|no)$")],
-	AC_MSG_ERROR([--with-session-tracking must be systemd/consolekit/no, not $with_session_tracking]))
-# add conditionals and subtitutions
-AM_CONDITIONAL(SESSION_TRACKING_CK, test "$with_session_tracking" = "consolekit")
-AM_CONDITIONAL(SESSION_TRACKING_SYSTEMD, test "$with_session_tracking" = "systemd")
-if test "$with_session_tracking" = "systemd"; then
-	PKG_CHECK_MODULES(SYSTEMD_LOGIN, [libsystemd],,
-	                  [PKG_CHECK_MODULES(SYSTEMD_LOGIN, [libsystemd-login])])
+	[Compatibility option to choose one session tracking module]))
+# backwards compatibility
+AS_IF([test "$with_session_tracking" = "ck"], [use_consolekit="yes" use_systemd_logind="no"])
+AS_IF([test "$with_session_tracking" = "consolekit"], [use_consolekit="yes" use_systemd_logind="no"])
+AS_IF([test "$with_session_tracking" = "systemd"], [use_consolekit="no" use_systemd_logind="yes"])
+AS_IF([test "$with_session_tracking" = "no"], [use_consolekit="no" use_systemd_logind="no"])
+AS_IF([test "$with_session_tracking" = "none"], [use_consolekit="no" use_systemd_logind="no"])
+# current options
+AS_IF([test -n "$with_systemd_logind" ], [use_systemd_logind="$with_systemd_logind"])
+AS_IF([test -n "$with_consolekit" ], [use_consolekit="$with_consolekit"])
+# defaults
+AS_IF([test -z "$use_systemd_logind"], [use_systemd_logind="yes"])
+AS_IF([test -z "$use_consolekit"], [use_consolekit="yes"])
+# output
+session_tracking=
+if test "$use_systemd_logind" = "yes"; then
+	PKG_CHECK_MODULES(SYSTEMD_LOGIN, [libsystemd-login])
 	AC_SUBST(SYSTEMD_LOGIN_CFLAGS)
 	AC_SUBST(SYSTEMD_LOGIN_LIBS)
+	AC_DEFINE([SESSION_TRACKING_SYSTEMD], 1, [Define to 1 if libsystemd-login is available])
+	session_tracking="$session_tracking, systemd-logind"
 fi
-if test "$with_session_tracking" = "consolekit"; then
-	AC_SUBST(CKDB_PATH, /var/run/ConsoleKit/database)
+if test "$use_consolekit" = "yes"; then
+	AC_DEFINE([SESSION_TRACKING_CONSOLEKIT], 1, [Define to 1 if ConsoleKit is available])
+	AC_DEFINE([CKDB_PATH], "/var/run/ConsoleKit/database", [Path to ConsoleKit database])
+	session_tracking="$session_tracking, consolekit"
 fi
-AC_MSG_RESULT($with_session_tracking)
+session_tracking=${session_tracking:2}
 
 AC_ARG_WITH(suspend-resume, AS_HELP_STRING([--with-suspend-resume=upower|systemd], [Build NetworkManager with specific suspend/resume support]))
 if test "z$with_suspend_resume" = "z"; then
@@ -419,10 +429,14 @@ AC_COMPILE_IFELSE(
                 #endif
                 #include <linux/if_link.h>]],
               [[int a = IN6_ADDR_GEN_MODE_EUI64; a++;]])],
-        [ac_have_kernel_gen_mode="1"],
-        [ac_have_kernel_gen_mode="0"])
-AC_DEFINE_UNQUOTED(HAVE_KERNEL_INET6_ADDR_GEN_MODE,
-	$ac_have_kernel_gen_mode, [Define if the kernel has IN6_ADDR_GEN_MODE_*])
+        [ac_have_kernel_gen_mode=yes],
+        [ac_have_kernel_gen_mode=no])
+AC_MSG_RESULT($ac_have_kernel_gen_mode)
+if test "$ac_have_kernel_gen_mode" = yes; then
+	AC_DEFINE(HAVE_KERNEL_INET6_ADDR_GEN_MODE, 1, [Define if the kernel has IN6_ADDR_GEN_MODE_*])
+else
+	AC_DEFINE(HAVE_KERNEL_INET6_ADDR_GEN_MODE, 0, [Define if the kernel has IN6_ADDR_GEN_MODE_*])
+fi
 
 # uuid library
 PKG_CHECK_MODULES(UUID, uuid)
@@ -497,6 +511,22 @@ else
 	AC_DEFINE(WITH_POLKIT, 0, [whether to compile polkit support])
 fi
 AC_SUBST(NM_CONFIG_DEFAULT_AUTH_POLKIT_TEXT)
+
+PKG_CHECK_MODULES(POLKIT, [polkit-agent-1 >= 0.97], [have_pk_agent=yes],[have_pk_agent=no])
+AC_ARG_ENABLE(polkit-agent, AS_HELP_STRING([--enable-polkit-agent], [enable polkit agent for clients]),
+                     [enable_polkit_agent=${enableval}], [enable_polkit_agent=${have_pk_agent}])
+if (test "${enable_polkit_agent}" = "yes"); then
+	if test x"$have_pk_agent" = x"no"; then
+		AC_MSG_ERROR(Polkit agent is required)
+	fi
+
+	AC_SUBST(POLKIT_CFLAGS)
+	AC_SUBST(POLKIT_LIBS)
+	AC_DEFINE(WITH_POLKIT_AGENT, 1, [Define if you have polkit agent])
+else
+	AC_DEFINE(WITH_POLKIT_AGENT, 0, [Define if you have polkit agent])
+fi
+AM_CONDITIONAL(WITH_POLKIT_AGENT, test "${enable_polkit_agent}" = "yes")
 
 AC_ARG_ENABLE(modify-system,
               AS_HELP_STRING([--enable-modify-system], [Allow users to modify system connections]))
@@ -642,7 +672,7 @@ if (test "${enable_bluez5_dun}" = "yes"); then
 	fi
 	AC_DEFINE(WITH_BLUEZ5_DUN, 1, [Define if you have Bluez 5 libraries])
 else
-	AC_DEFINE(HAVE_BLUEZ5_DUN, 0, [Define if you have Bluez 5 libraries])
+	AC_DEFINE(WITH_BLUEZ5_DUN, 0, [Define if you have Bluez 5 libraries])
 fi
 AM_CONDITIONAL(WITH_BLUEZ5_DUN, test "${enable_bluez5_dun}" = "yes")
 
@@ -801,6 +831,14 @@ AM_CONDITIONAL(BUILD_NMTUI, test "$build_nmtui" = yes)
 
 NM_COMPILER_WARNINGS
 
+AC_ARG_ENABLE(lto, AS_HELP_STRING([--enable-lto], [Enable Link Time Optimization for smaller size (default: no)]))
+if (test "${enable_lto}" = "yes"); then
+    CFLAGS="-flto $CFLAGS"
+else
+    enable_lto='no'
+fi
+
+
 dnl -------------------------
 dnl Vala bindings
 dnl -------------------------
@@ -877,7 +915,7 @@ if test "$build_setting_docs" != "yes" \
 	-a -f man/nm-settings-keyfile.xml \
 	-a -f man/nm-settings-ifcfg-rh.xml \
 	-a -f docs/api/settings-spec.xml \
-	-a -f cli/src/settings-docs.c; then
+	-a -f clients/cli/settings-docs.c; then
     AC_DEFINE(HAVE_SETTING_DOCS, [1], [Define if you have pre-built settings docs])
     have_setting_docs=yes
 fi
@@ -933,7 +971,6 @@ libnm-util/libnm-util.pc
 libnm-util/nm-version.h
 libnm-util/Makefile
 libnm-util/tests/Makefile
-libnm-util/tests/certs/Makefile
 libnm-glib/libnm-glib.pc
 libnm-glib/libnm-glib-vpn.pc
 libnm-glib/Makefile
@@ -959,6 +996,7 @@ man/NetworkManager.conf.xml
 man/nm-system-settings.conf.5
 man/nm-online.1
 man/nmcli.1
+man/nmtui.1
 po/Makefile.in
 policy/Makefile
 policy/org.freedesktop.NetworkManager.policy.in
@@ -1002,7 +1040,7 @@ echo "  nmrundir: $nmrundir"
 echo
 
 echo "Platform:"
-echo "  session tracking: $with_session_tracking"
+echo "  session tracking: $session_tracking"
 echo "  suspend/resume: $with_suspend_resume"
 if test "${enable_polkit}" = "yes"; then
 	if test "${enable_modify_system}" = "yes"; then
@@ -1013,6 +1051,7 @@ if test "${enable_polkit}" = "yes"; then
 else
 	echo  "  policykit: no"
 fi
+echo "  polkit agent: ${enable_polkit_agent}"
 echo "  selinux: $have_selinux"
 echo
 
@@ -1049,4 +1088,5 @@ echo "  documentation: $enable_gtk_doc"
 echo "  tests: $enable_tests"
 echo "  valgrind: $with_valgrind"
 echo "  code coverage: $enable_code_coverage"
+echo "  LTO: $enable_lto"
 echo

@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <resolv.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -436,53 +437,28 @@ dispatch_resolvconf (char **searches,
 }
 #endif
 
+#define MY_RESOLV_CONF NMRUNDIR "/resolv.conf"
+#define MY_RESOLV_CONF_TMP MY_RESOLV_CONF ".tmp"
+#define RESOLV_CONF_TMP "/etc/.resolv.conf.NetworkManager"
+
 static gboolean
 update_resolv_conf (char **searches,
                     char **nameservers,
                     GError **error)
 {
-	char *tmp_resolv_conf;
-	char *tmp_resolv_conf_realpath;
-	char *resolv_conf_realpath;
 	FILE *f;
-	int do_rename = 1;
-	int old_errno = 0;
+	struct stat st;
 
 	g_return_val_if_fail (error != NULL, FALSE);
 
-	/* Find the real path of resolv.conf; it could be a symlink to something */
-	resolv_conf_realpath = realpath (_PATH_RESCONF, NULL);
-	if (!resolv_conf_realpath)
-		resolv_conf_realpath = strdup (_PATH_RESCONF);
-
-	/* Build up the real path for the temp resolv.conf that we're about to
-	 * write out.
-	 */
-	tmp_resolv_conf = g_strdup_printf ("%s.tmp", resolv_conf_realpath);
-	tmp_resolv_conf_realpath = realpath (tmp_resolv_conf, NULL);
-	if (!tmp_resolv_conf_realpath)
-		tmp_resolv_conf_realpath = strdup (tmp_resolv_conf);
-	g_free (tmp_resolv_conf);
-	tmp_resolv_conf = NULL;
-
-	if ((f = fopen (tmp_resolv_conf_realpath, "w")) == NULL) {
-		do_rename = 0;
-		old_errno = errno;
-		if ((f = fopen (_PATH_RESCONF, "w")) == NULL) {
-			g_set_error (error,
-			             NM_MANAGER_ERROR,
-			             NM_MANAGER_ERROR_FAILED,
-			             "Could not open %s: %s\nCould not open %s: %s\n",
-			             tmp_resolv_conf_realpath,
-			             g_strerror (old_errno),
-			             _PATH_RESCONF,
-			             g_strerror (errno));
-			goto out;
-		}
-		/* Update tmp_resolv_conf_realpath so the error message on fclose()
-		 * failure will be correct.
-		 */
-		strcpy (tmp_resolv_conf_realpath, _PATH_RESCONF);
+	if ((f = fopen (MY_RESOLV_CONF_TMP, "w")) == NULL) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not open %s: %s\n",
+		             MY_RESOLV_CONF_TMP,
+		             g_strerror (errno));
+		return FALSE;
 	}
 
 	write_resolv_conf (f, searches, nameservers, error);
@@ -496,28 +472,90 @@ update_resolv_conf (char **searches,
 			             NM_MANAGER_ERROR,
 			             NM_MANAGER_ERROR_FAILED,
 			             "Could not close %s: %s\n",
-			             tmp_resolv_conf_realpath,
+			             MY_RESOLV_CONF_TMP,
 			             g_strerror (errno));
 		}
 	}
 
-	/* Don't rename the tempfile over top of the existing resolv.conf if there
-	 * was an error writing it out.
-	 */
-	if (*error == NULL && do_rename) {
-		if (rename (tmp_resolv_conf_realpath, resolv_conf_realpath) < 0) {
-			g_set_error (error,
-			             NM_MANAGER_ERROR,
-			             NM_MANAGER_ERROR_FAILED,
-			             "Could not replace " _PATH_RESCONF ": %s\n",
-			             g_strerror (errno));
-		}
+	if (*error)
+		return FALSE;
+
+	if (rename (MY_RESOLV_CONF_TMP, MY_RESOLV_CONF) < 0) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not replace %s: %s\n",
+		             MY_RESOLV_CONF,
+		             g_strerror (errno));
+		return FALSE;
 	}
 
-out:
-	free (tmp_resolv_conf_realpath);
-	free (resolv_conf_realpath);
-	return *error ? FALSE : TRUE;
+	/* Don't overwrite a symbolic link unless it points to MY_RESOLV_CONF. */
+	if (lstat (_PATH_RESCONF, &st) != -1) {
+		/* Don't overwrite a symbolic link. */
+		if (S_ISLNK (st.st_mode)) {
+			if (stat (_PATH_RESCONF, &st) != -1) {
+				char *path = g_file_read_link (_PATH_RESCONF, NULL);
+				gboolean not_ours = g_strcmp0 (path, MY_RESOLV_CONF) != 0;
+
+				g_free (path);
+				if (not_ours)
+					return TRUE;
+			} else {
+				if (errno != ENOENT)
+					return TRUE;
+				g_set_error (error,
+							 NM_MANAGER_ERROR,
+							 NM_MANAGER_ERROR_FAILED,
+							 "Could not stat %s: %s\n",
+							 _PATH_RESCONF,
+							 g_strerror (errno));
+				return FALSE;
+			}
+		}
+	} else if (errno != ENOENT) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not lstat %s: %s\n",
+		             _PATH_RESCONF,
+		             g_strerror (errno));
+		return FALSE;
+	}
+
+	if (unlink (RESOLV_CONF_TMP) == -1 && errno != ENOENT) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not unlink %s: %s\n",
+		             RESOLV_CONF_TMP,
+		             g_strerror (errno));
+		return FALSE;
+	}
+
+	if (symlink (MY_RESOLV_CONF, RESOLV_CONF_TMP) == -1) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not create symlink %s pointing to %s: %s\n",
+		             RESOLV_CONF_TMP,
+		             MY_RESOLV_CONF,
+		             g_strerror (errno));
+		return FALSE;
+	}
+
+	if (rename (RESOLV_CONF_TMP, _PATH_RESCONF) == -1) {
+		g_set_error (error,
+		             NM_MANAGER_ERROR,
+		             NM_MANAGER_ERROR_FAILED,
+		             "Could not rename %s to %s: %s\n",
+		             RESOLV_CONF_TMP,
+		             _PATH_RESCONF,
+		             g_strerror (errno));
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 static void
