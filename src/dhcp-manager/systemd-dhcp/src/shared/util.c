@@ -5653,6 +5653,7 @@ int get_shell(char **_s) {
         *_s = s;
         return 0;
 }
+#endif /* NM_IGNORED */
 
 bool filename_is_valid(const char *p) {
 
@@ -5674,6 +5675,7 @@ bool filename_is_valid(const char *p) {
         return true;
 }
 
+#if 0 /* NM_IGNORED */
 bool string_is_safe(const char *p) {
         const char *t;
 
