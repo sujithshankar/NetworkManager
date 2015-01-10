@@ -34,6 +34,8 @@ void strv_free(char **l);
 DEFINE_TRIVIAL_CLEANUP_FUNC(char**, strv_free);
 #define _cleanup_strv_free_ _cleanup_(strv_freep)
 
+void strv_clear(char **l);
+
 char **strv_copy(char * const *l);
 unsigned strv_length(char * const *l) _pure_;
 
@@ -42,12 +44,17 @@ int strv_extend_strv_concat(char ***a, char **b, const char *suffix);
 int strv_extend(char ***l, const char *value);
 int strv_extendf(char ***l, const char *format, ...) _printf_(2,0);
 int strv_push(char ***l, char *value);
+int strv_push_pair(char ***l, char *a, char *b);
 int strv_push_prepend(char ***l, char *value);
 int strv_consume(char ***l, char *value);
+int strv_consume_pair(char ***l, char *a, char *b);
 int strv_consume_prepend(char ***l, char *value);
 
 char **strv_remove(char **l, const char *s);
 char **strv_uniq(char **l);
+bool strv_is_uniq(char **l);
+
+bool strv_equal(char **a, char **b);
 
 #define strv_contains(l, s) (!!strv_find((l), (s)))
 
@@ -135,3 +142,5 @@ void strv_print(char **l);
                 _l ++;                                       \
                 _l[0];                                       \
         }))
+
+char **strv_reverse(char **l);

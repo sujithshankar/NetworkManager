@@ -42,6 +42,7 @@
 #include <locale.h>
 #include <mntent.h>
 #include <sys/socket.h>
+#include <sys/inotify.h>
 
 #if SIZEOF_PID_T == 4
 #  define PID_FMT "%" PRIu32
@@ -112,7 +113,7 @@
 #define ANSI_HIGHLIGHT_OFF "\x1B[0m"
 #define ANSI_ERASE_TO_END_OF_LINE "\x1B[K"
 
-size_t page_size(void);
+size_t page_size(void) _pure_;
 #define PAGE_ALIGN(l) ALIGN_TO((l), page_size())
 
 #define streq(a,b) (strcmp((a),(b)) == 0)
@@ -263,7 +264,6 @@ const char* split(const char **state, size_t *l, const char *separator, bool quo
         for ((state) = (s), (word) = split(&(state), &(length), (separator), (quoted)); (word); (word) = split(&(state), &(length), (separator), (quoted)))
 
 pid_t get_parent_of_pid(pid_t pid, pid_t *ppid);
-int get_starttime_of_pid(pid_t pid, unsigned long long *st);
 
 char *strappend(const char *s, const char *suffix);
 char *strnappend(const char *s, const char *suffix, size_t length);
@@ -295,6 +295,9 @@ int get_process_exe(pid_t pid, char **name);
 int get_process_uid(pid_t pid, uid_t *uid);
 int get_process_gid(pid_t pid, gid_t *gid);
 int get_process_capeff(pid_t pid, char **capeff);
+int get_process_cwd(pid_t pid, char **cwd);
+int get_process_root(pid_t pid, char **root);
+int get_process_environ(pid_t pid, char **environ);
 
 char hexchar(int x) _const_;
 int unhexchar(char c) _const_;
@@ -315,7 +318,7 @@ char *ascii_strlower(char *path);
 bool dirent_is_file(const struct dirent *de) _pure_;
 bool dirent_is_file_with_suffix(const struct dirent *de, const char *suffix) _pure_;
 
-bool ignore_file(const char *filename) _pure_;
+bool hidden_file(const char *filename) _pure_;
 
 bool chars_intersect(const char *a, const char *b) _pure_;
 
@@ -423,7 +426,7 @@ int sigaction_many(const struct sigaction *sa, ...);
 int fopen_temporary(const char *path, FILE **_f, char **_temp_path);
 
 ssize_t loop_read(int fd, void *buf, size_t nbytes, bool do_poll);
-ssize_t loop_write(int fd, const void *buf, size_t nbytes, bool do_poll);
+int loop_write(int fd, const void *buf, size_t nbytes, bool do_poll);
 
 bool is_device_path(const char *path);
 
@@ -450,6 +453,8 @@ int get_ctty(pid_t, dev_t *_devnr, char **r);
 
 int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid);
 int fchmod_and_fchown(int fd, mode_t mode, uid_t uid, gid_t gid);
+
+int is_fd_on_temporary_fs(int fd);
 
 int rm_rf_children(int fd, bool only_dirs, bool honour_sticky, struct stat *root_dev);
 int rm_rf_children_dangerous(int fd, bool only_dirs, bool honour_sticky, struct stat *root_dev);
@@ -510,7 +515,7 @@ char *unquote(const char *s, const char *quotes);
 char *normalize_env_assignment(const char *s);
 
 int wait_for_terminate(pid_t pid, siginfo_t *status);
-int wait_for_terminate_and_warn(const char *name, pid_t pid);
+int wait_for_terminate_and_warn(const char *name, pid_t pid, bool check_exit_code);
 
 noreturn void freeze(void);
 
@@ -541,6 +546,7 @@ bool hostname_is_valid(const char *s) _pure_;
 char* hostname_cleanup(char *s, bool lowercase);
 
 bool machine_name_is_valid(const char *s) _pure_;
+bool image_name_is_valid(const char *s) _pure_;
 
 char* strshorten(char *s, size_t l);
 
@@ -710,7 +716,7 @@ _alloc_(2, 3) static inline void *memdup_multiply(const void *p, size_t a, size_
         return memdup(p, a * b);
 }
 
-bool filename_is_safe(const char *p) _pure_;
+bool filename_is_valid(const char *p) _pure_;
 bool path_is_safe(const char *p) _pure_;
 bool string_is_safe(const char *p) _pure_;
 bool string_has_cc(const char *p, const char *ok) _pure_;
@@ -767,9 +773,18 @@ int search_and_fopen_nulstr(const char *path, const char *mode, const char *root
                                 on_error;                               \
                         }                                               \
                         break;                                          \
-                } else if (ignore_file((de)->d_name))                   \
+                } else if (hidden_file((de)->d_name))                   \
                         continue;                                       \
                 else
+
+#define FOREACH_DIRENT_ALL(de, d, on_error)                             \
+        for (errno = 0, de = readdir(d);; errno = 0, de = readdir(d))   \
+                if (!de) {                                              \
+                        if (errno > 0) {                                \
+                                on_error;                               \
+                        }                                               \
+                        break;                                          \
+                } else
 
 static inline void *mempset(void *s, int c, size_t n) {
         memset(s, c, n);
@@ -879,6 +894,7 @@ int unlink_noerrno(const char *path);
                 (void *) memset(_new_, 0, _len_);       \
         })
 
+/* It's not clear what alignment glibc/gcc alloca() guarantee, hence provide a guaranteed safe version */
 #define alloca_align(size, align)                                       \
         ({                                                              \
                 void *_ptr_;                                            \
@@ -969,6 +985,7 @@ static inline void qsort_safe(void *base, size_t nmemb, size_t size,
 
 int proc_cmdline(char **ret);
 int parse_proc_cmdline(int (*parse_word)(const char *key, const char *value));
+int get_proc_cmdline_key(const char *parameter, char **value);
 
 int container_get_leader(const char *machine, pid_t *pid);
 
@@ -1010,8 +1027,9 @@ int bind_remount_recursive(const char *prefix, bool ro);
 
 int fflush_and_check(FILE *f);
 
-char *tempfn_xxxxxx(const char *p);
-char *tempfn_random(const char *p);
+int tempfn_xxxxxx(const char *p, char **ret);
+int tempfn_random(const char *p, char **ret);
+int tempfn_random_child(const char *p, char **ret);
 
 bool is_localhost(const char *hostname);
 
@@ -1026,3 +1044,35 @@ int unquote_many_words(const char **p, ...) _sentinel_;
 int free_and_strdup(char **p, const char *s);
 
 int sethostname_idempotent(const char *s);
+
+#define INOTIFY_EVENT_MAX (sizeof(struct inotify_event) + NAME_MAX + 1)
+
+#define FOREACH_INOTIFY_EVENT(e, buffer, sz) \
+        for ((e) = &buffer.ev;                                \
+             (uint8_t*) (e) < (uint8_t*) (buffer.raw) + (sz); \
+             (e) = (struct inotify_event*) ((uint8_t*) (e) + sizeof(struct inotify_event) + (e)->len))
+
+union inotify_event_buffer {
+        struct inotify_event ev;
+        uint8_t raw[INOTIFY_EVENT_MAX];
+};
+
+#define laccess(path, mode) faccessat(AT_FDCWD, (path), (mode), AT_SYMLINK_NOFOLLOW)
+
+int ptsname_malloc(int fd, char **ret);
+
+int openpt_in_namespace(pid_t pid, int flags);
+
+ssize_t fgetxattrat_fake(int dirfd, const char *filename, const char *attribute, void *value, size_t size, int flags);
+
+int fd_setcrtime(int fd, usec_t usec);
+int fd_getcrtime(int fd, usec_t *usec);
+int path_getcrtime(const char *p, usec_t *usec);
+int fd_getcrtime_at(int dirfd, const char *name, usec_t *usec, int flags);
+
+int same_fd(int a, int b);
+
+int chattr_fd(int fd, bool b, int mask);
+int chattr_path(const char *p, bool b, int mask);
+
+#define RLIMIT_MAKE_CONST(lim) ((struct rlimit) { lim, lim })

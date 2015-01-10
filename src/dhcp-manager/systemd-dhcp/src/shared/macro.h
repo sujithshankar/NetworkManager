@@ -95,15 +95,15 @@
 #error "Wut? Pointers are neither 4 nor 8 bytes long?"
 #endif
 
-#define ALIGN_PTR(p) ((void*) ALIGN((unsigned long) p))
-#define ALIGN4_PTR(p) ((void*) ALIGN4((unsigned long) p))
-#define ALIGN8_PTR(p) ((void*) ALIGN8((unsigned long) p))
+#define ALIGN_PTR(p) ((void*) ALIGN((unsigned long) (p)))
+#define ALIGN4_PTR(p) ((void*) ALIGN4((unsigned long) (p)))
+#define ALIGN8_PTR(p) ((void*) ALIGN8((unsigned long) (p)))
 
 static inline size_t ALIGN_TO(size_t l, size_t ali) {
         return ((l + ali - 1) & ~(ali - 1));
 }
 
-#define ALIGN_TO_PTR(p, ali) ((void*) ALIGN_TO((unsigned long) p, ali))
+#define ALIGN_TO_PTR(p, ali) ((void*) ALIGN_TO((unsigned long) (p), (ali)))
 
 /* align to next higher power-of-2 (except for: 0 => 0, overflow => 0) */
 static inline unsigned long ALIGN_POWER2(unsigned long u) {
@@ -197,6 +197,17 @@ static inline unsigned long ALIGN_POWER2(unsigned long u) {
                                         UNIQ_T(X,xq);                   \
         })
 
+/* [(x + y - 1) / y] suffers from an integer overflow, even though the
+ * computation should be possible in the given type. Therefore, we use
+ * [x / y + !!(x % y)]. Note that on "Real CPUs" a division returns both the
+ * quotient and the remainder, so both should be equally fast. */
+#define DIV_ROUND_UP(_x, _y)                                            \
+        __extension__ ({                                                \
+                const typeof(_x) __x = (_x);                            \
+                const typeof(_y) __y = (_y);                            \
+                (__x / __y + !!(__x % __y));                            \
+        })
+
 #define assert_se(expr)                                                 \
         do {                                                            \
                 if (_unlikely_(!(expr)))                                \
@@ -263,6 +274,14 @@ static inline unsigned long ALIGN_POWER2(unsigned long u) {
 
 #define PTR_TO_SIZE(p) ((size_t) ((uintptr_t) (p)))
 #define SIZE_TO_PTR(u) ((void *) ((uintptr_t) (u)))
+
+/* The following macros add 1 when converting things, since UID 0 is a
+ * valid UID, while the pointer NULL is special */
+#define PTR_TO_UID(p) ((uid_t) (((uintptr_t) (p))-1))
+#define UID_TO_PTR(u) ((void*) (((uintptr_t) (u))+1))
+
+#define PTR_TO_GID(p) ((gid_t) (((uintptr_t) (p))-1))
+#define GID_TO_PTR(u) ((void*) (((uintptr_t) (u))+1))
 
 #define memzero(x,l) (memset((x), 0, (l)))
 #define zero(x) (memzero(&(x), sizeof(x)))
@@ -384,6 +403,21 @@ do {                                                                    \
                 _found;                                                 \
         })
 
+/* Return a nulstr for a standard cascade of configuration directories,
+ * suitable to pass to conf_files_list_nulstr or config_parse_many. */
+#define CONF_DIRS_NULSTR(n) \
+        "/etc/" n ".d\0" \
+        "/run/" n ".d\0" \
+        "/usr/local/lib/" n ".d\0" \
+        "/usr/lib/" n ".d\0" \
+        CONF_DIR_SPLIT_USR(n)
+
+#ifdef HAVE_SPLIT_USR
+#define CONF_DIR_SPLIT_USR(n) "/lib/" n ".d\0"
+#else
+#define CONF_DIR_SPLIT_USR(n)
+#endif
+
 /* Define C11 thread_local attribute even on older gcc compiler
  * version */
 #ifndef thread_local
@@ -407,5 +441,9 @@ do {                                                                    \
 #define noreturn __attribute__((noreturn))
 #endif
 #endif
+
+#define UID_INVALID ((uid_t) -1)
+#define GID_INVALID ((gid_t) -1)
+#define MODE_INVALID ((mode_t) -1)
 
 #include "log.h"
