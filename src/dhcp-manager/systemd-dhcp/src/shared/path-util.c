@@ -19,6 +19,9 @@
   along with systemd; If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+#include "nm-sd-adapt.h"
+
+#if 0 /* NM_IGNORED */
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,7 +37,9 @@
 #include "util.h"
 #include "log.h"
 #include "strv.h"
+#endif /* NM_IGNORED */
 #include "path-util.h"
+#if 0 /* NM_IGNORED */
 #include "missing.h"
 
 bool path_is_absolute(const char *p) {
@@ -334,6 +339,7 @@ char **path_strv_resolve_uniq(char **l, const char *prefix) {
 
         return strv_uniq(l);
 }
+#endif /* NM_IGNORED */
 
 char *path_kill_slashes(char *path) {
         char *f, *t;
@@ -370,6 +376,7 @@ char *path_kill_slashes(char *path) {
         return path;
 }
 
+#if 0 /* NM_IGNORED */
 char* path_startswith(const char *path, const char *prefix) {
         assert(path);
         assert(prefix);
@@ -686,3 +693,4 @@ int fsck_exists(const char *fstype) {
 
         return 0;
 }
+#endif /* NM_IGNORED */
