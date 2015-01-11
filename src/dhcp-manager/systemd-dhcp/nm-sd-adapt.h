@@ -61,7 +61,7 @@ _slog_level_to_nm (int slevel)
 	if (nm_logging_enabled (_nm_l, LOGD_DHCP)) { \
 		const char *_nm_location = strrchr (file "", '/'); \
 		\
-		_nm_log (_nm_location ? _nm_location + 1 : file, line, func, _nm_l, LOGD_DHCP, _nm_e, format, ## __VA_ARGS__); \
+		_nm_log (_nm_location ? _nm_location + 1 : file, line, func, _nm_l, LOGD_DHCP, _nm_e, "sd-dhcp: " format, ## __VA_ARGS__); \
 	} \
 	-abs(_nm_e); \
 })
